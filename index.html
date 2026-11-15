@@ -105,6 +105,11 @@ input{width:100%;background:rgba(0,0,0,.25);border:1px solid var(--line);color:v
 .al-s{font-size:11px;color:var(--mut);margin-top:5px}
 .leaflet-container{background:#0b1e33}
 .src{display:block;text-align:center;font-size:12px;color:var(--mut);margin:4px 16px 0}
+.sbox{display:flex;gap:8px;margin:4px 16px 8px}
+.sbox input{flex:1;background:var(--card);border:1px solid var(--line);color:var(--txt);border-radius:12px;padding:11px 12px;font-size:15px}
+.sbox button{background:var(--acc);color:#06213a;border:0;border-radius:12px;padding:0 16px;font-weight:700;font-size:15px}
+.sres a{display:block;padding:11px 12px;color:var(--txt);text-decoration:none;border-bottom:1px solid var(--line)}
+.sres a span{color:var(--mut);font-size:12px}
 [hidden]{display:none!important}
 </style>
 </head>
@@ -115,7 +120,7 @@ input{width:100%;background:rgba(0,0,0,.25);border:1px solid var(--line);color:v
   <button class="ib" id="bSet" aria-label="Impostazioni">⚙︎</button>
 </header>
 <div id="allerta"></div>
-<nav class="tabs" id="tabs"><button data-v="prev" class="on">Previsioni</button><button data-v="live">In diretta</button></nav>
+<nav class="tabs" id="tabs"><button data-v="prev" class="on">Previsioni</button><button data-v="live">In diretta</button><button data-v="search">Cerca</button></nav>
 <div id="vPrev">
 <nav class="locs" id="locs"></nav>
 <div id="msg"></div>
@@ -123,6 +128,7 @@ input{width:100%;background:rgba(0,0,0,.25);border:1px solid var(--line);color:v
 <footer id="foot"></footer>
 </div>
 <div id="vLive" hidden></div>
+<div id="vSearch" hidden></div>
 <dialog id="dlg"></dialog>
 
 <script>
@@ -163,19 +169,20 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>'
 const locKey = () => locs.map(l => [l.lat,l.lon,l.alt].join('/')).join('|');
 
 // ---------- download ----------
-function url(m, vars){
+function url(m, vars, list){
+  list = list || locs;
   const p = new URLSearchParams({
-    latitude: locs.map(l=>l.lat).join(','),
-    longitude: locs.map(l=>l.lon).join(','),
-    elevation: locs.map(l=>l.alt).join(','),
+    latitude: list.map(l=>l.lat).join(','),
+    longitude: list.map(l=>l.lon).join(','),
+    elevation: list.map(l=>l.alt).join(','),
     hourly: vars.join(','), models: m.id,
     timezone: 'Europe/Rome', forecast_days: '7', wind_speed_unit: 'kmh'
   });
   return 'https://api.open-meteo.com/v1/forecast?' + p.toString();
 }
-async function fetchModel(m){
-  let r = await fetch(url(m, VARS));
-  if (!r.ok) r = await fetch(url(m, VARS.filter(v => v !== 'freezing_level_height')));
+async function fetchModel(m, list){
+  let r = await fetch(url(m, VARS, list));
+  if (!r.ok) r = await fetch(url(m, VARS.filter(v => v !== 'freezing_level_height'), list));
   if (!r.ok) throw new Error(m.id + ' ' + r.status);
   let j = await r.json();
   if (j && j.error) throw new Error(j.reason);
@@ -220,8 +227,8 @@ function wdir(a){ // direzione media (vettoriale)
 const fin = v => Number.isFinite(v) ? v : null;
 const avg = a => { a = a.filter(v => v != null); return a.length ? a.reduce((s,v)=>s+v,0)/a.length : null; };
 
-function build(li){
-  const ms = raw.models.map(x => ({m: MODELS.find(m => m.id === x.id), d: x.locs[li]})).filter(x => x.m && x.d);
+function build(models, li){
+  const ms = models.map(x => ({m: MODELS.find(m => m.id === x.id), d: x.locs[li]})).filter(x => x.m && x.d);
   let times = [];
   ms.forEach(x => { if (x.d.time.length > times.length) times = x.d.time; });
   ms.forEach(x => {
@@ -318,7 +325,7 @@ function render(){
   const M = $('main');
   if (!raw || !raw.models || !raw.models.length){ M.innerHTML = '<div class="empty">Nessuna previsione ancora scaricata.<br>Tocca ↻ per aggiornare.</div>'; $('upd').textContent = '—'; return; }
   if (raw.key !== locKey()) msg('Hai cambiato le località: tocca ↻ per aggiornare le previsioni.');
-  const {H, D, ms} = build(cur);
+  const {H, D, ms} = build(raw.models, cur);
   const t = new Date(raw.ts);
   $('upd').textContent = 'Aggiornato ' + t.toLocaleDateString('it-IT',{day:'numeric',month:'short'}) + ' ' + t.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'}) + ' · ' + ms.length + ' modelli';
 
@@ -372,7 +379,7 @@ function render(){
   $('foot').innerHTML = 'Ogni valore è la mediana pesata dei modelli disponibili, con più peso a quelli ad alta risoluzione sulle Alpi (MeteoSvizzera, AROME, ItaliaMeteo). ' +
     'Il pallino indica quanto i modelli sono d\'accordo. Tocca un giorno per vedere le ore e il confronto tra i modelli.<br>' +
     'Modelli usati ora: ' + ms.map(x => esc(x.m.n)).join(', ') + '.<br>' +
-    'Versione app: 13 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
+    'Versione app: 14 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
 }
 
 
@@ -497,6 +504,117 @@ function renderAllerta(){
     '<div class="al-h">Allerta meteo · Limone' + (zona ? ' <span style="font-weight:400;color:var(--mut)">(zona ' + esc(zona) + ')</span>' : '') + '</div>' + rows +
     '<div class="al-s">Bollettino ufficiale del ' + b.slice(6,8) + '/' + b.slice(4,6) + ' ore ' + b.slice(9,11) + ':' + b.slice(11,13) + ' · tocca per i bollettini Arpa →</div></a>';
 }
+
+
+// ---------- scheda Cerca: previsioni per una località qualsiasi + Arpa vicina ----------
+function haversine(la1, lo1, la2, lo2){
+  const R = 6371, d = x => x * Math.PI / 180;
+  const a = Math.sin(d(la2-la1)/2)**2 + Math.cos(d(la1))*Math.cos(d(la2))*Math.sin(d(lo2-lo1)/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+async function geocode(q){
+  try{
+    const r = await fetchT('https://geocoding-api.open-meteo.com/v1/search?name=' + encodeURIComponent(q) + '&count=6&language=it&format=json', 10000);
+    const j = await r.json();
+    return (j.results || []).map(x => ({nome: x.name, lat: x.latitude, lon: x.longitude, alt: Math.round(x.elevation || 0),
+      extra: [x.admin1, x.country].filter(Boolean).join(', ')}));
+  }catch(e){ return []; }
+}
+async function searchForecast(loc){
+  const res = await Promise.allSettled(MODELS.map(m => fetchModel(m, [{lat: loc.lat, lon: loc.lon, alt: loc.alt}])));
+  const ok = [];
+  res.forEach((r,i) => {
+    if (r.status === 'fulfilled' && r.value[0] && r.value[0].time.length &&
+        r.value[0].temperature_2m && r.value[0].temperature_2m.some(v => v != null))
+      ok.push({id: MODELS[i].id, locs: r.value});
+  });
+  return ok.length ? ok : null;
+}
+function fcHtml(models, loc){
+  const {H, D, ms} = build(models, 0);
+  const nk = nowKey();
+  let ni = H.findIndex(h => h.t === nk); if (ni < 0) ni = 0;
+  const h = H[ni] || {}, today = D[0] || {};
+  const next3 = H.slice(ni, ni+3);
+  const p3 = next3.reduce((s,x) => s + (x.pr||0), 0), s3 = next3.reduce((s,x) => s + (x.sn||0), 0);
+  let html = '<div class="card"><div class="now"><div class="ico">' + icoH(h) + '</div><div><div class="t">' + r0(h.temp) + '°</div>' +
+    '<div class="sub">' + esc(loc.nome) + ' · ' + r0(loc.alt) + ' m · ore ' + (h.t ? h.t.slice(11,16) : '') + '</div>' +
+    '<div class="rel"><span class="dot ' + today.rel + '"></span>' + relTxt[today.rel] + ' oggi</div></div></div>' +
+    '<div class="stats">' +
+      '<div class="stat"><b>' + r0(h.ws) + '</b><i>vento km/h</i></div>' +
+      '<div class="stat"><b>' + r0(h.wg) + '</b><i>raffiche km/h</i></div>' +
+      '<div class="stat"><b>' + (h.wd != null ? arrow(h.wd) + ' ' + card(h.wd) : '–') + '</b><i>da</i></div>' +
+      '<div class="stat"><b class="r">' + nfmt(p3) + '</b><i>mm 3 ore</i></div>' +
+      '<div class="stat"><b class="s">' + nfmt(s3) + '</b><i>cm neve 3 ore</i></div>' +
+      '<div class="stat"><b>' + (today.snowLine != null ? today.snowLine : '–') + '</b><i>quota neve m</i></div>' +
+    '</div></div>';
+  html += '<h2>Prossimi giorni</h2>';
+  D.forEach((d,i) => {
+    const ic = ico(d.pr||0, d.sn||0, d.cc, false, 0.5, 3), anySnow = (d.sn||0) >= 0.1;
+    html += '<div class="day"><div class="dh" style="cursor:default">' +
+      '<div class="dn"><b>' + dayName(d.d,i) + ' ' + dayNum(d.d) + '</b><span><span class="dot ' + d.rel + '"></span>' + d.rel + '</span></div>' +
+      '<div class="di">' + ic + '</div>' +
+      '<div class="dv"><span class="r' + ((d.pr||0) < 0.1 ? ' z' : '') + '">💧 ' + nfmt(d.pr) + ' mm</span>' +
+        (anySnow ? '<span class="s">❄️ ' + nfmt(d.sn) + ' cm</span>' : '') +
+        '<span class="w">💨 ' + r0(d.ws) + ' / ' + r0(d.wg) + '</span></div>' +
+      '<div class="dt"><b>' + r0(d.tmax) + '°</b><span>' + r0(d.tmin) + '°</span></div></div></div>';
+  });
+  return html;
+}
+async function nearestArpa(loc){
+  const j = await getJson('https://utility.arpa.piemonte.it/api_realtime/pie_anag');
+  if (!Array.isArray(j) || !j.length) return '';
+  let best = null, bd = 1e9;
+  j.forEach(st => { if (st.lat != null && st.lng != null){ const d = haversine(loc.lat, loc.lon, st.lat, st.lng); if (d < bd){ bd = d; best = st; } } });
+  if (!best || bd > 30) return '<div class="card"><div class="note" style="padding:0">Nessuna stazione Arpa Piemonte nel raggio di 30 km.</div></div>';
+  const id = (best.codice_istat_comune || '') + String(best.progr_punto_com || '').padStart(3, '0');
+  let vals = '';
+  try{
+    const f = await getJson('https://utility.arpa.piemonte.it/api_realtime/data_pie?station_code=' + best.station_code + '&page_size=200');
+    const rows = (f && f.data || []).slice().sort((a,b) => new Date(a.date) - new Date(b.date));
+    const last = k => { for (let i = rows.length-1; i >= 0; i--) if (rows[i][k] != null) return rows[i][k]; return null; };
+    const t = last('air_temperature'), w = last('wind'), g = last('gust_of_wind'), sn = last('snow_height'), hu = last('humidity');
+    vals = kv('Temperatura', t != null ? (Math.round(t*10)/10).toString().replace('.', ',') + '°' : null) +
+      kv('Vento', w != null ? Math.round(w) + ' km/h' + (g != null ? ' (raffica ' + Math.round(g) + ')' : '') : null) +
+      kv('Neve al suolo', sn != null && sn >= 0 ? sn + ' cm' : null) +
+      kv('Umidità', hu != null ? hu + '%' : null);
+  }catch(e){}
+  return '<h2>Stazione Arpa più vicina</h2><div class="card">' +
+    '<b style="display:flex;justify-content:space-between;margin-bottom:4px">' + esc(best.name) + '<span style="color:var(--mut);font-weight:400">' + Math.round(bd) + ' km · ' + r0(best.quote) + ' m</span></b>' +
+    (vals || '<div class="note" style="padding:0">Dati non disponibili ora.</div>') +
+    '<div class="links"><a href="https://www.arpa.piemonte.it/rischi_naturali/snippets_arpa_graphs/dettaglio_stazione/?id=' + id + '&param=termo" target="_blank" rel="noopener">📈 Grafici Arpa della stazione →</a></div></div>';
+}
+let searchSel = null;
+function showSearch(){
+  const V = $('vSearch');
+  if (!V.innerHTML){
+    V.innerHTML = '<div class="sbox"><input id="sinp" placeholder="Cerca una località…" autocapitalize="words" enterkeyhint="search"><button id="sbtn">Cerca</button></div><div id="sout"></div>';
+  }
+}
+async function runSearch(q){
+  if (!q || !q.trim()) return;
+  const out = $('sout'); out.innerHTML = '<div class="note" style="padding:16px">Cerco…</div>';
+  const list = await geocode(q.trim());
+  if (!list.length){ out.innerHTML = '<div class="note" style="padding:16px">Nessuna località trovata. Prova con un altro nome.</div>'; return; }
+  if (list.length === 1){ pickPlace(list[0]); return; }
+  out.innerHTML = '<div class="sres card" style="padding:0">' + list.map((l,i) =>
+    '<a href="#" data-i="' + i + '">' + esc(l.nome) + ' <span>' + esc(l.extra) + ' · ' + l.alt + ' m</span></a>').join('') + '</div>';
+  out._list = list;
+}
+async function pickPlace(loc){
+  searchSel = loc; LS.set('ml.search', loc);
+  const out = $('sout');
+  out.innerHTML = '<div class="note" style="padding:16px">Scarico le previsioni per ' + esc(loc.nome) + '…</div>';
+  const models = await searchForecast(loc);
+  if (!models){ out.innerHTML = '<div class="note" style="padding:16px">Non riesco a scaricare le previsioni ora. Riprova.</div>'; return; }
+  out.innerHTML = fcHtml(models, loc) + '<div id="sarpa"><div class="note" style="padding:8px 16px">Cerco la stazione Arpa più vicina…</div></div>';
+  try{ $('sarpa').innerHTML = await nearestArpa(loc); }catch(e){ $('sarpa').innerHTML = ''; }
+}
+document.addEventListener('click', e => {
+  if (e.target.id === 'sbtn'){ runSearch($('sinp').value); return; }
+  const a = e.target.closest('.sres a'); if (a){ e.preventDefault(); const l = $('sout')._list; if (l) pickPlace(l[+a.dataset.i]); }
+});
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'sinp'){ runSearch(e.target.value); } });
 
 // ---------- impostazioni ----------
 function openSettings(){
@@ -792,10 +910,12 @@ async function showLive(){
 }
 $('tabs').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
-  liveOn = b.dataset.v === 'live';
+  const v = b.dataset.v; liveOn = v === 'live';
   [...$('tabs').children].forEach(x => x.classList.toggle('on', x === b));
-  $('vPrev').hidden = liveOn; $('vLive').hidden = !liveOn;
-  if (liveOn) showLive(); else { stopRadar(); if (rmap){ try{ rmap.remove(); }catch(e){} rmap = null; } $('vLive').innerHTML = ''; } // chiude video e radar quando torni alle previsioni
+  $('vPrev').hidden = v !== 'prev'; $('vLive').hidden = v !== 'live'; $('vSearch').hidden = v !== 'search';
+  if (v === 'live') showLive();
+  else { stopRadar(); if (rmap){ try{ rmap.remove(); }catch(e){} rmap = null; } $('vLive').innerHTML = ''; } // chiude video e radar quando esci da In diretta
+  if (v === 'search') showSearch();
 });
 
 $('locs').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; cur = +b.dataset.i; LS.set('ml.cur', cur); render(); });
