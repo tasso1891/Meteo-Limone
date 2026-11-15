@@ -379,7 +379,7 @@ function render(){
   $('foot').innerHTML = 'Ogni valore è la mediana pesata dei modelli disponibili, con più peso a quelli ad alta risoluzione sulle Alpi (MeteoSvizzera, AROME, ItaliaMeteo). ' +
     'Il pallino indica quanto i modelli sono d\'accordo. Tocca un giorno per vedere le ore e il confronto tra i modelli.<br>' +
     'Modelli usati ora: ' + ms.map(x => esc(x.m.n)).join(', ') + '.<br>' +
-    'Versione app: 14 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
+    'Versione app: 15 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
 }
 
 
@@ -551,13 +551,27 @@ function fcHtml(models, loc){
   html += '<h2>Prossimi giorni</h2>';
   D.forEach((d,i) => {
     const ic = ico(d.pr||0, d.sn||0, d.cc, false, 0.5, 3), anySnow = (d.sn||0) >= 0.1;
-    html += '<div class="day"><div class="dh" style="cursor:default">' +
+    let hrs = d.hours; if (i === 0) hrs = hrs.filter(x => x.t >= nk);
+    html += '<div class="day"><div class="dh" data-d="' + d.d + '">' +
       '<div class="dn"><b>' + dayName(d.d,i) + ' ' + dayNum(d.d) + '</b><span><span class="dot ' + d.rel + '"></span>' + d.rel + '</span></div>' +
       '<div class="di">' + ic + '</div>' +
       '<div class="dv"><span class="r' + ((d.pr||0) < 0.1 ? ' z' : '') + '">💧 ' + nfmt(d.pr) + ' mm</span>' +
         (anySnow ? '<span class="s">❄️ ' + nfmt(d.sn) + ' cm</span>' : '') +
         '<span class="w">💨 ' + r0(d.ws) + ' / ' + r0(d.wg) + '</span></div>' +
-      '<div class="dt"><b>' + r0(d.tmax) + '°</b><span>' + r0(d.tmin) + '°</span></div></div></div>';
+      '<div class="dt"><b>' + r0(d.tmax) + '°</b><span>' + r0(d.tmin) + '°</span></div></div>' +
+      '<div class="dd"><div class="hours">' + hrs.map(x =>
+        '<div class="h">' + x.t.slice(11,13) + '<div class="hi">' + icoH(x) + '</div><b>' + r0(x.temp) + '°</b>' +
+        '<div class="r' + ((x.pr||0) < 0.05 ? ' z' : '') + '">' + nfmt(x.pr) + ' mm</div>' +
+        ((x.sn||0) >= 0.05 ? '<div class="s">' + nfmt(x.sn) + ' cm</div>' : '') +
+        '<div class="w">' + arrow(x.wd) + ' ' + r0(x.ws) + '</div><div class="w">raf. ' + r0(x.wg) + '</div></div>').join('') +
+      '</div>' +
+      (d.snowLine != null ? '<div class="note">Quota neve stimata quando precipita: circa ' + d.snowLine + ' m</div>' : '') +
+      (d.per.length ? '<table class="models"><tr><th>Modello</th><th>min/max</th><th>mm</th><th>neve</th><th>raff.</th></tr>' +
+        d.per.slice().sort((a,b) => b.m.w - a.m.w).map(p =>
+          '<tr><td>' + esc(p.m.n) + '</td><td>' + r0(p.tmin) + '/' + r0(p.tmax) + '°</td><td>' + nfmt(p.pr) + '</td><td>' + (p.sn == null ? '–' : nfmt(p.sn)) + '</td><td>' + r0(p.wg) + '</td></tr>').join('') +
+        '<tr class="fin"><td>Previsione finale</td><td>' + r0(d.tmin) + '/' + r0(d.tmax) + '°</td><td>' + nfmt(d.pr) + '</td><td>' + nfmt(d.sn) + '</td><td>' + r0(d.wg) + '</td></tr></table>'
+        : '<div class="note">Per questo giorno arrivano solo dati parziali dai modelli.</div>') +
+      '</div></div>';
   });
   return html;
 }
@@ -615,6 +629,7 @@ document.addEventListener('click', e => {
   const a = e.target.closest('.sres a'); if (a){ e.preventDefault(); const l = $('sout')._list; if (l) pickPlace(l[+a.dataset.i]); }
 });
 document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'sinp'){ runSearch(e.target.value); } });
+$('vSearch').addEventListener('click', e => { const dh = e.target.closest('.dh'); if (dh) dh.parentElement.classList.toggle('open'); });
 
 // ---------- impostazioni ----------
 function openSettings(){
