@@ -372,7 +372,7 @@ function openSettings(){
       '<div><label>Quota m</label><input id="al' + i + '" inputmode="numeric" value="' + l.alt + '"></div></div>' +
       '<button class="btn sec sm" data-geo="' + i + '">📍 Usa la mia posizione</button></fieldset>').join('') +
     '<fieldset><legend>Dati in diretta</legend><label>Indirizzo del tuo inoltro Cloudflare (es. https://meteo-limone.tuonome.workers.dev)</label>' +
-      '<input id="px" inputmode="url" autocapitalize="off" autocorrect="off" placeholder="https://….workers.dev" value="' + esc(LS.get('ml.proxy','')) + '"></fieldset>' +
+      '<input id="px" inputmode="url" autocapitalize="off" autocorrect="off" placeholder="https://….workers.dev" value="' + esc(LS.get('ml.proxy','') || DEF_PROXY) + '"></fieldset>' +
     '<div class="acts"><button class="btn sec" id="dDef">Ripristina</button><span><button class="btn sec" id="dNo">Annulla</button> <button class="btn" id="dOk">Salva</button></span></div>';
   d.showModal();
 }
@@ -411,19 +411,29 @@ function camUrl(id, back){ // le immagini hanno l'ora nel nome: provo l'ora attu
   const d = new Date(Date.now() - back*3600e3);
   return 'https://riservabianca.it/img/webcam/' + id + '_0_big_' + d.getFullYear() + pad(d.getMonth()+1) + pad(d.getDate()) + '_' + pad(d.getHours()) + '00.jpg';
 }
+function camStamps(h){ // dalla pagina /info: ultimo scatto di ogni webcam, es. monte-tenda_0_big_20261115_1416.jpg
+  const o = {}, re = /img\/webcam\/([a-z0-9-]+)_0_big_(\d{8}_\d{4})\.jpg/gi; let x;
+  while ((x = re.exec(h))) o[x[1]] = x[2];
+  return o;
+}
+function camSrc(id){
+  const st = rb && rb.cams && rb.cams[id];
+  return st ? 'https://riservabianca.it/img/webcam/' + id + '_0_big_' + st + '.jpg' : camUrl(id, 0);
+}
 function camErr(img){
   const b = +(img.dataset.b || 0) + 1;
   if (b > 8){ img.outerHTML = '<div class="note">Immagine non disponibile in questo momento.</div>'; return; }
   img.dataset.b = b; img.src = camUrl(img.dataset.id, b);
 }
 function camOk(img){
-  const d = new Date(Date.now() - (+(img.dataset.b || 0))*3600e3);
-  const s = img.parentElement.querySelector('b span'); if (s) s.textContent = 'ore ' + pad(d.getHours()) + ':00';
+  const m = img.src.match(/_(\d{8})_(\d{2})(\d{2})\.jpg/);
+  const s = img.closest('.cam').querySelector('b span'); if (s && m) s.textContent = 'ore ' + m[2] + ':' + m[3];
 }
 // I siti Arpa e Riserva Bianca non si lasciano leggere direttamente da un'altra app:
 // passo da un inoltro. Prima il proprio (Cloudflare Worker, impostato in ⚙︎), poi alcuni pubblici.
+const DEF_PROXY = 'https://meteo-limone.hz9yjdywdp.workers.dev';
 function proxies(){
-  const own = (LS.get('ml.proxy', '') || '').trim().replace(/\/+$/, '');
+  const own = (LS.get('ml.proxy', '') || DEF_PROXY).trim().replace(/\/+$/, '');
   const list = [];
   if (own) list.push({f: u => own + '/?url=' + encodeURIComponent(u)});
   list.push({f: u => 'https://api.allorigins.win/get?url=' + encodeURIComponent(u), wrap: true});
@@ -448,7 +458,7 @@ async function viaProxies(u, minLen){
   return null;
 }
 const getHtml = u => viaProxies(u, 500);
-const toText = h => h.replace(/<script[\s\S]*?<\/script>/gi,' ').replace(/<style[\s\S]*?<\/style>/gi,' ')
+const toText = h => h.replace(/<img[^>]*?alt="([^"]*)"[^>]*>/gi,' $1 ').replace(/<script[\s\S]*?<\/script>/gi,' ').replace(/<style[\s\S]*?<\/style>/gi,' ')
   .replace(/<[^>]+>/g,' ').replace(/&nbsp;|&#160;/g,' ').replace(/&deg;/g,'°').replace(/\^/g,'').replace(/\s+/g,' ');
 async function loadRB(){
   const [home, info] = await Promise.all([getHtml('https://riservabianca.it/'), getHtml('https://riservabianca.it/info')]);
@@ -459,12 +469,14 @@ async function loadRB(){
     ts: Date.now(),
     valle:  m(a, /Temperatura a valle\s*(-?\d+(?:[.,]\d+)?)\s*°/i),
     quota:  m(a, /Temperatura in quota\s*(-?\d+(?:[.,]\d+)?)\s*°/i),
-    nmin:   m(b, /Neve\s*Min\s*(\d+)\s*cm/i),
-    nmax:   m(b, /Neve\s*Min\s*\d+\s*cm\s*Max\s*(\d+)\s*cm/i),
+    nmin:   m(b, /Neve:?\s*Min\s*(\d+)\s*cm/i),
+    nmax:   m(b, /Neve:?\s*Min\s*\d+\s*cm\s*Max\s*(\d+)\s*cm/i),
     ultima: m(b, /Ultima\s+Nevicata\s*(\d{1,2}\/\d{1,2}\/\d{4})/i),
-    impianti: m(a, /Impianti aperti\s*(\d+\s*\/\s*\d+)/i),
-    piste:  m(a, /Piste aperte\s*(\d+\s*\/\s*\d+)/i),
-    valico: m(b, /Valico\s+Tenda\s*(Aperto|Chiuso)/i)
+    impianti: m(a, /Impianti aperti:?\s*(\d+\s*\/\s*\d+)/i) || m(b, /Impianti aperti:?\s*(\d+\s*\/\s*\d+)/i),
+    piste:  m(a, /Piste aperte:?\s*(\d+\s*\/\s*\d+)/i) || m(b, /Piste aperte:?\s*(\d+\s*\/\s*\d+)/i),
+    valico: m(b, /Valico\s+Tenda:?\s*(Aperto|Chiuso)/i),
+    agg:    m(b, /Agg\.?\s*(\d{1,2} \w{3} \d{4} \d{1,2}:\d{2})/i),
+    cams:   camStamps(info || '')
   };
 }
 // Stazioni Arpa Piemonte (servizio ufficiale utility.arpa.piemonte.it/api_realtime, ultimi 3 giorni)
@@ -529,7 +541,7 @@ function renderLive(loadingRB){
     const t = new Date(rb.ts);
     rbHtml = kv('Temperatura a valle', rb.valle != null ? rb.valle + '°' : null) + kv('Temperatura in quota', rb.quota != null ? rb.quota + '°' : null) +
       kv('Neve al suolo', rb.nmin != null ? rb.nmin + (rb.nmax != null ? '–' + rb.nmax : '') + ' cm' : null) + kv('Ultima nevicata', rb.ultima) +
-      kv('Impianti aperti', rb.impianti) + kv('Piste aperte', rb.piste) + kv('Valico del Tenda', rb.valico);
+      kv('Impianti aperti', rb.impianti) + kv('Piste aperte', rb.piste) + kv('Valico del Tenda', rb.valico) + kv('Bollettino aggiornato', rb.agg);
     rbHtml = (rbHtml || '<div class="note">Il sito ha risposto ma non ho trovato i valori.</div>') +
       '<div class="note" style="padding:6px 0 0">Letto alle ' + pad(t.getHours()) + ':' + pad(t.getMinutes()) + (loadingRB ? ' · aggiorno…' : '') + '</div>';
   } else rbHtml = '<div class="note" style="padding:0">' + (loadingRB ? 'Leggo i dati dal sito della Riserva Bianca…' : 'Dati non raggiungibili in questo momento.') + '</div>';
@@ -539,7 +551,7 @@ function renderLive(loadingRB){
     '<h2>Stazioni Arpa Piemonte</h2>' + arpaCard(loadingRB) +
     '<h2>Diretta video</h2><div class="cam"><div class="yt"><iframe src="https://www.youtube.com/embed/live_stream?channel=UCqz6HBb2cM5rPs7CBZH75vQ&mute=1&playsinline=1" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen title="Diretta Limone Piemonte"></iframe></div></div>' +
     '<h2>Webcam</h2>' + CAMS.map(c =>
-      '<div class="cam"><b>' + c.n + '<span></span></b><a href="https://riservabianca.it/info" target="_blank" rel="noopener"><img data-id="' + c.id + '" data-b="0" src="' + camUrl(c.id, 0) + '" alt="' + c.n + '" onerror="camErr(this)" onload="camOk(this)"></a></div>').join('') +
+      '<div class="cam"><b>' + c.n + '<span></span></b><a href="https://riservabianca.it/info" target="_blank" rel="noopener"><img data-id="' + c.id + '" data-b="0" src="' + camSrc(c.id) + '" alt="' + c.n + '" onerror="camErr(this)" onload="camOk(this)"></a></div>').join('') +
     '<h2>Link utili</h2><div class="card links">' +
       '<a href="https://riservabianca.it/info" target="_blank" rel="noopener">❄️ Bollettino neve e webcam – Riserva Bianca</a>' +
       '<a href="https://www.arpa.piemonte.it/rischi_naturali/boll/bollettino_meteotestuale.pdf" target="_blank" rel="noopener">📄 Bollettino meteo Arpa Piemonte</a>' +
