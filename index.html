@@ -372,7 +372,7 @@ function render(){
   $('foot').innerHTML = 'Ogni valore è la mediana pesata dei modelli disponibili, con più peso a quelli ad alta risoluzione sulle Alpi (MeteoSvizzera, AROME, ItaliaMeteo). ' +
     'Il pallino indica quanto i modelli sono d\'accordo. Tocca un giorno per vedere le ore e il confronto tra i modelli.<br>' +
     'Modelli usati ora: ' + ms.map(x => esc(x.m.n)).join(', ') + '.<br>' +
-    'Versione app: 12 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
+    'Versione app: 13 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
 }
 
 
@@ -672,44 +672,78 @@ function arpaCard(loading){
 
 // ---------- Centralina SimoMarco (simolimo.com, dati ThingSpeak) ----------
 const SIMO_URL = 'https://www.simolimo.com/meteo/centralinagraff.html';
-let simo = LS.get('ml.simo', null);
+let simo = LS.get('ml.simo', null); if (simo && !simo.when) simo = null;
 function unita(n){ n = n.toLowerCase(); return /neve/.test(n) ? ' cm' : /umid/.test(n) && !/bulbo/.test(n) ? '%' : /temp|bulbo|rugiada|ir/.test(n) ? '°' : /press/.test(n) ? ' hPa' : /vento|wind/.test(n) ? ' km/h' : ''; }
+// canali ThingSpeak e formule copiate dalla pagina centralinagraff.html di simolimo.com
+const SIMO_CH1 = {id: 168825, key: 'IW8078MVZKG3HZ11'}, SIMO_CH2 = {id: 182826, key: 'V8OUHPMFQSBTUDLM'};
+function simoConv(f){
+  const n = k => (f[k] == null || f[k] === '') ? null : +f[k];
+  const o = {};
+  if (n('field1') != null) o.temp = Math.round(n('field1') / 100000) / 10;
+  if (n('field5') != null){
+    let u = n('field5') / 1000000;
+    if (u > 60) u = (u - 60) * 1.55 + 60;
+    if (u < 2) u = 100;
+    o.hum = Math.min(100, Math.round(u));
+    let lux = n('field5'); const t2 = Math.floor(lux / 100000); lux = -(Math.floor((lux - t2 * 100000) / 1000) - 33);
+    o.lux = lux;
+  }
+  if (n('field3') != null) o.ir = Math.round(n('field3') / 100000) / 10 + 0.4;
+  if (n('field4') != null){
+    let h = Math.round(n('field4') / 100000 * 10) / 10;
+    h = Math.max(0, Math.round((344.5 - h) * 10) / 10);
+    if (o.lux == null || (o.lux < 40 && h < 300)) o.snow = h;      // stesso filtro della pagina
+    if (o.lux == null || (o.lux < 350 && h < 200)) o.fresh = h < 0.5 ? 0 : h;
+  }
+  return o;
+}
+function dewPoint(t, rh){ // formula di Magnus
+  if (t == null || rh == null || rh <= 0) return null;
+  const a = 17.62, b = 243.12, g = Math.log(rh / 100) + a * t / (b + t);
+  return Math.round(b * g / (a - g) * 10) / 10;
+}
 async function loadSimo(){
-  const h = await viaProxies(SIMO_URL, 200);
-  if (!h) return null;
-  const out = {ts: Date.now(), vals: [], when: null};
-  const t = toText(h);
-  const d = t.match(/(\d{4}-\d{2}-\d{2})/), u = t.match(/Ultimo dato\.*\s*(\d{1,2}:\d{2})/i);
-  if (u) out.when = (d ? d[1].split('-').reverse().join('/') + ' ' : '') + 'ore ' + u[1];
-  // 1) se la pagina legge un canale ThingSpeak, prendo i dati direttamente da lì (con i nomi dei campi)
-  const ch = h.match(/channels\/(\d{3,8})\/(?:feeds?|fields?)/i), key = h.match(/api_key=([A-Z0-9]{16})/i);
-  if (ch){
-    try{
-      const r = await fetchT('https://api.thingspeak.com/channels/' + ch[1] + '/feeds.json?results=1' + (key ? '&api_key=' + key[1] : ''), 10000);
-      const j = await r.json(), f = j.feeds && j.feeds[j.feeds.length - 1];
-      if (f){
-        for (let i = 1; i <= 8; i++){ const n = j.channel['field' + i], v = f['field' + i]; if (n && v != null && v !== '' && !isNaN(+v)) out.vals.push([n, +v]); }
-        const w = new Date(f.created_at); out.when = w.toLocaleDateString('it-IT',{day:'numeric',month:'short'}) + ' ore ' + pad(w.getHours()) + ':' + pad(w.getMinutes());
-      }
-    }catch(e){}
-  }
-  // 2) altrimenti leggo i valori scritti nella pagina per gli indicatori (es. ['Temperatura', 3.3])
-  if (!out.vals.length){
-    const re = /\[\s*['"]([A-Za-zÀ-ú.\s]{3,30})['"]\s*,\s*(-?\d+(?:\.\d+)?)\s*\]/g; let x;
-    while ((x = re.exec(h))) if (!/label|value/i.test(x[1])) out.vals.push([x[1].trim(), +x[2]]);
-  }
-  return out.vals.length ? out : null;
+  try{
+    const [r1, r2] = await Promise.all([
+      fetchT('https://api.thingspeak.com/channels/' + SIMO_CH1.id + '/feeds.json?results=100&api_key=' + SIMO_CH1.key, 12000),
+      fetchT('https://api.thingspeak.com/channels/' + SIMO_CH2.id + '/feeds/last.json?api_key=' + SIMO_CH2.key, 12000).catch(() => null)
+    ]);
+    const j = await r1.json(), feeds = (j.feeds || []).filter(f => f.created_at);
+    if (!feeds.length) return null;
+    const rows = feeds.map(f => Object.assign({t: new Date(f.created_at)}, simoConv(f)));
+    const last = rows[rows.length - 1], tEnd = last.t;
+    const day = rows.filter(r => r.temp != null && tEnd - r.t < 24*3600e3).map(r => r.temp);
+    let snow24 = null;
+    const old = rows.filter(r => r.snow != null && Math.abs(r.t - (tEnd - 24*3600e3)) < 2*3600e3);
+    if (last.snow != null && old.length) snow24 = Math.round((last.snow - old[0].snow) * 10) / 10;
+    let wet = null;
+    if (r2 && r2.ok){ const k = await r2.json(); if (k && k.field1 != null && k.field1 !== '') wet = Math.round(+k.field1 * 10) / 10; }
+    const lastVal = key => { for (let i = rows.length - 1; i >= 0; i--) if (rows[i][key] != null) return rows[i][key]; return null; };
+    const o = {ts: Date.now(), when: tEnd.toISOString(),
+      temp: last.temp, tmin: day.length ? Math.min(...day) : null, tmax: day.length ? Math.max(...day) : null,
+      hum: last.hum, wet, ir: last.ir, snow: lastVal('snow'), snow24, fresh: lastVal('fresh')};
+    o.dew = dewPoint(o.temp, o.hum);
+    return o;
+  }catch(e){ return null; }
 }
 function simoCard(loading){
+  const d = simo && simo.when ? simo : null;
+  const n1 = x => x == null ? null : (Math.round(x*10)/10).toString().replace('.', ',');
   let body;
-  if (simo && simo.vals && simo.vals.length){
-    body = simo.vals.map(([n, v]) => kv(esc(n), (Math.round(v*10)/10).toString().replace('.', ',') + unita(n))).join('') +
-      '<div class="note" style="padding:6px 0 0">Ultimo dato: ' + esc(simo.when || '—') + (loading ? ' · aggiorno…' : '') + '</div>';
-  } else body = '<div class="note" style="padding:0">' + (loading ? 'Leggo i dati della centralina…' : 'Dati della centralina non leggibili in questo momento.') + '</div>';
+  if (d){
+    const t = new Date(d.when);
+    body = kv('Temperatura', d.temp != null ? n1(d.temp) + '°' + (d.tmin != null ? '  (min ' + n1(d.tmin) + '° / max ' + n1(d.tmax) + '°)' : '') : null) +
+      kv('Umidità', d.hum != null ? d.hum + '%' : null) +
+      kv('Temperatura bulbo umido', d.wet != null ? n1(d.wet) + '°' : null) +
+      kv('Punto di rugiada', d.dew != null ? n1(d.dew) + '°' : null) +
+      kv('Temperatura IR (superficie)', d.ir != null ? n1(d.ir) + '°' : null) +
+      kv('Altezza neve', d.snow != null ? n1(d.snow) + ' cm' + (d.snow24 ? '  (' + (d.snow24 > 0 ? '+' : '') + n1(d.snow24) + ' in 24 h)' : '') : null) +
+      kv('Neve fresca', d.fresh != null ? n1(d.fresh) + ' cm' : null) +
+      '<div class="note" style="padding:6px 0 0">Ultimo dato: ' + t.toLocaleDateString('it-IT',{day:'numeric',month:'short'}) + ' ore ' + pad(t.getHours()) + ':' + pad(t.getMinutes()) + ' · nuovo dato ogni 15 min' + (loading ? ' · aggiorno…' : '') + '</div>';
+  } else body = '<div class="note" style="padding:0">' + (loading ? 'Leggo i dati della centralina…' : 'Dati della centralina non raggiungibili in questo momento.') + '</div>';
   return '<div class="card"><b style="display:flex;justify-content:space-between;margin-bottom:4px">Centralina SimoMarco<span style="color:var(--mut);font-weight:400">Limone</span></b>' + body +
     '<div class="links"><a href="' + SIMO_URL + '" target="_blank" rel="noopener">📈 Grafici della centralina →</a></div></div>';
 }
-
 let rb = LS.get('ml.rb', null), liveOn = false;
 function kv(k, v){ return v == null || v === '' ? '' : '<div class="kv"><span>' + k + '</span><b>' + esc(v) + '</b></div>'; }
 function renderLive(loadingRB){
