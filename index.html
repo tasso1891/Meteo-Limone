@@ -343,6 +343,7 @@ function render(){
       '<div class="stat"><b>' + (h.wd != null ? arrow(h.wd) + ' ' + card(h.wd) : '–') + '</b><i>da</i></div>' +
       '<div class="stat"><b class="r">' + nfmt(p3) + '</b><i>mm prossime 3 ore</i></div>' +
       '<div class="stat"><b class="s">' + nfmt(s3) + '</b><i>cm neve prossime 3 ore</i></div>' +
+      '<div class="stat"><b>' + (h.fz != null ? r0(h.fz) : '–') + '</b><i>zero termico m</i></div>' +
       '<div class="stat"><b>' + (today.snowLine != null ? today.snowLine : '–') + '</b><i>quota neve m (oggi)</i></div>' +
     '</div></div>';
 
@@ -379,7 +380,7 @@ function render(){
   $('foot').innerHTML = 'Ogni valore è la mediana pesata dei modelli disponibili, con più peso a quelli ad alta risoluzione sulle Alpi (MeteoSvizzera, AROME, ItaliaMeteo). ' +
     'Il pallino indica quanto i modelli sono d\'accordo. Tocca un giorno per vedere le ore e il confronto tra i modelli.<br>' +
     'Modelli usati ora: ' + ms.map(x => esc(x.m.n)).join(', ') + '.<br>' +
-    'Versione app: 15 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
+    'Versione app: 16 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
 }
 
 
@@ -546,6 +547,7 @@ function fcHtml(models, loc){
       '<div class="stat"><b>' + (h.wd != null ? arrow(h.wd) + ' ' + card(h.wd) : '–') + '</b><i>da</i></div>' +
       '<div class="stat"><b class="r">' + nfmt(p3) + '</b><i>mm 3 ore</i></div>' +
       '<div class="stat"><b class="s">' + nfmt(s3) + '</b><i>cm neve 3 ore</i></div>' +
+      '<div class="stat"><b>' + (h.fz != null ? r0(h.fz) : '–') + '</b><i>zero termico m</i></div>' +
       '<div class="stat"><b>' + (today.snowLine != null ? today.snowLine : '–') + '</b><i>quota neve m</i></div>' +
     '</div></div>';
   html += '<h2>Prossimi giorni</h2>';
