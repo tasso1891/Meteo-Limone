@@ -371,6 +371,8 @@ function openSettings(){
       '<div><label>Longitudine</label><input id="lo' + i + '" inputmode="decimal" value="' + l.lon + '"></div>' +
       '<div><label>Quota m</label><input id="al' + i + '" inputmode="numeric" value="' + l.alt + '"></div></div>' +
       '<button class="btn sec sm" data-geo="' + i + '">📍 Usa la mia posizione</button></fieldset>').join('') +
+    '<fieldset><legend>Dati in diretta</legend><label>Indirizzo del tuo inoltro Cloudflare (es. https://meteo-limone.tuonome.workers.dev)</label>' +
+      '<input id="px" inputmode="url" autocapitalize="off" autocorrect="off" placeholder="https://….workers.dev" value="' + esc(LS.get('ml.proxy','')) + '"></fieldset>' +
     '<div class="acts"><button class="btn sec" id="dDef">Ripristina</button><span><button class="btn sec" id="dNo">Annulla</button> <button class="btn" id="dOk">Salva</button></span></div>';
   d.showModal();
 }
@@ -392,7 +394,9 @@ $('dlg').addEventListener('click', e => {
     const num = v => parseFloat(String(v).replace(',', '.'));
     const nl = locs.map((l,i) => ({nome: $('n'+i).value.trim() || l.nome, lat: num($('la'+i).value), lon: num($('lo'+i).value), alt: num($('al'+i).value)}));
     if (nl.some(l => !Number.isFinite(l.lat) || !Number.isFinite(l.lon) || !Number.isFinite(l.alt) || Math.abs(l.lat) > 90 || Math.abs(l.lon) > 180)){ alert('Controlla i numeri: latitudine, longitudine e quota devono essere numeri validi.'); return; }
-    locs = nl; LS.set('ml.locs', locs); $('dlg').close(); load();
+    LS.set('ml.proxy', $('px').value.trim());
+    locs = nl; LS.set('ml.locs', locs); $('dlg').close();
+    if (liveOn) showLive(); else load();
   }
 });
 
@@ -416,16 +420,34 @@ function camOk(img){
   const d = new Date(Date.now() - (+(img.dataset.b || 0))*3600e3);
   const s = img.parentElement.querySelector('b span'); if (s) s.textContent = 'ore ' + pad(d.getHours()) + ':00';
 }
-const PROXIES = [
-  u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u),
-  u => 'https://corsproxy.io/?url=' + encodeURIComponent(u)
-];
-async function getHtml(u){
-  for (const p of PROXIES){
-    try{ const r = await fetch(p(u)); if (r.ok){ const t = await r.text(); if (t.length > 500) return t; } }catch(e){}
+// I siti Arpa e Riserva Bianca non si lasciano leggere direttamente da un'altra app:
+// passo da un inoltro. Prima il proprio (Cloudflare Worker, impostato in ⚙︎), poi alcuni pubblici.
+function proxies(){
+  const own = (LS.get('ml.proxy', '') || '').trim().replace(/\/+$/, '');
+  const list = [];
+  if (own) list.push({f: u => own + '/?url=' + encodeURIComponent(u)});
+  list.push({f: u => 'https://api.allorigins.win/get?url=' + encodeURIComponent(u), wrap: true});
+  list.push({f: u => 'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(u)});
+  list.push({f: u => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u)});
+  return list;
+}
+async function fetchT(u, ms){
+  const c = new AbortController(), t = setTimeout(() => c.abort(), ms || 10000);
+  try{ return await fetch(u, {signal: c.signal}); } finally { clearTimeout(t); }
+}
+async function viaProxies(u, minLen){
+  for (const p of proxies()){
+    try{
+      const r = await fetchT(p.f(u));
+      if (!r.ok) continue;
+      let t = await r.text();
+      if (p.wrap){ const j = JSON.parse(t); t = j && j.contents; }
+      if (t && t.length >= (minLen || 1)) return t;
+    }catch(e){}
   }
   return null;
 }
+const getHtml = u => viaProxies(u, 500);
 const toText = h => h.replace(/<script[\s\S]*?<\/script>/gi,' ').replace(/<style[\s\S]*?<\/style>/gi,' ')
   .replace(/<[^>]+>/g,' ').replace(/&nbsp;|&#160;/g,' ').replace(/&deg;/g,'°').replace(/\^/g,'').replace(/\s+/g,' ');
 async function loadRB(){
@@ -451,9 +473,9 @@ const ARPA = [
   {code:'S2898', n:"Rocca dell'Abisso",  q:2740, id:'004084902'}
 ];
 async function getJson(u){
-  try{ const r = await fetch(u); if (r.ok) return await r.json(); }catch(e){}
-  for (const p of PROXIES){ try{ const r = await fetch(p(u)); if (r.ok) return JSON.parse(await r.text()); }catch(e){} }
-  return null;
+  try{ const r = await fetchT(u, 8000); if (r.ok) return await r.json(); }catch(e){}
+  const t = await viaProxies(u, 2);
+  try{ return t ? JSON.parse(t) : null; }catch(e){ return null; }
 }
 async function loadArpa(){
   const out = await Promise.all(ARPA.map(async s => {
