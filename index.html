@@ -445,6 +445,59 @@ async function loadRB(){
     valico: m(b, /Valico\s+Tenda\s*(Aperto|Chiuso)/i)
   };
 }
+// Stazioni Arpa Piemonte (servizio ufficiale utility.arpa.piemonte.it/api_realtime, ultimi 3 giorni)
+const ARPA = [
+  {code:'S4613', n:'Limone Pancani',     q:1885, id:'004110901'},
+  {code:'S2898', n:"Rocca dell'Abisso",  q:2740, id:'004084902'}
+];
+async function getJson(u){
+  try{ const r = await fetch(u); if (r.ok) return await r.json(); }catch(e){}
+  for (const p of PROXIES){ try{ const r = await fetch(p(u)); if (r.ok) return JSON.parse(await r.text()); }catch(e){} }
+  return null;
+}
+async function loadArpa(){
+  const out = await Promise.all(ARPA.map(async s => {
+    const j = await getJson('https://utility.arpa.piemonte.it/api_realtime/data_pie?station_code=' + s.code + '&page_size=500');
+    if (!j || !Array.isArray(j.data) || !j.data.length) return null;
+    const rows = j.data.slice().sort((a,b) => new Date(a.date) - new Date(b.date));
+    const last = k => { for (let i = rows.length-1; i >= 0; i--) if (rows[i][k] != null) return rows[i]; return null; };
+    const lt = last('air_temperature'), tEnd = lt ? new Date(lt.date) : new Date(rows[rows.length-1].date);
+    const day = rows.filter(r => r.air_temperature != null && tEnd - new Date(r.date) < 24*3600e3).map(r => r.air_temperature);
+    const sn = last('snow_height');
+    let sn24 = null;
+    if (sn){ const t0 = new Date(sn.date) - 24*3600e3; const old = rows.filter(r => r.snow_height != null && Math.abs(new Date(r.date) - t0) <= 2*3600e3); if (old.length) sn24 = old[0].snow_height; }
+    const v = (r, k) => r ? r[k] : null;
+    return {code: s.code,
+      when: (lt || rows[rows.length-1]).date,
+      temp: v(lt,'air_temperature'), tmin: day.length ? Math.min(...day) : null, tmax: day.length ? Math.max(...day) : null,
+      hum: v(last('humidity'),'humidity'),
+      wind: v(last('wind'),'wind'), wdir: v(last('wind_direction'),'wind_direction'), gust: v(last('gust_of_wind'),'gust_of_wind'),
+      r1: v(last('cum_rain_1h'),'cum_rain_1h'), r24: v(last('cum_rain_24h'),'cum_rain_24h'),
+      snow: sn ? Math.max(0, sn.snow_height) : null, snowD: sn && sn24 != null ? Math.max(0, sn.snow_height) - Math.max(0, sn24) : null};
+  }));
+  return out.some(Boolean) ? {ts: Date.now(), st: out} : null;
+}
+let arpa = LS.get('ml.arpa', null);
+function arpaCard(loading){
+  return ARPA.map((s,i) => {
+    const d = arpa && arpa.st[i];
+    let body;
+    if (d){
+      const t = new Date(d.when);
+      const n1 = x => x == null ? null : (Math.round(x*10)/10).toString().replace('.', ',');
+      body = kv('Temperatura', d.temp != null ? n1(d.temp) + '°' + (d.tmin != null ? '  (min ' + n1(d.tmin) + '° / max ' + n1(d.tmax) + '°)' : '') : null) +
+        kv('Vento', d.wind != null ? Math.round(d.wind) + ' km/h' + (d.wdir != null ? ' da ' + card(d.wdir) : '') : null) +
+        kv('Raffica', d.gust != null ? Math.round(d.gust) + ' km/h' : null) +
+        kv('Pioggia ultima ora', d.r1 != null ? nfmt(d.r1) + ' mm' : null) +
+        kv('Pioggia ultime 24 ore', d.r24 != null ? nfmt(d.r24) + ' mm' : null) +
+        kv('Neve al suolo', d.snow != null ? d.snow + ' cm' + (d.snowD ? '  (' + (d.snowD > 0 ? '+' : '') + d.snowD + ' in 24 h)' : '') : null) +
+        kv('Umidità', d.hum != null ? d.hum + '%' : null) +
+        '<div class="note" style="padding:6px 0 0">Ultimo dato: ' + t.toLocaleDateString('it-IT',{day:'numeric',month:'short'}) + ' ore ' + pad(t.getHours()) + ':' + pad(t.getMinutes()) + (loading ? ' · aggiorno…' : '') + '</div>';
+    } else body = '<div class="note" style="padding:0">' + (loading ? 'Leggo i dati Arpa…' : 'Dati Arpa non raggiungibili in questo momento.') + '</div>';
+    return '<div class="card"><b style="display:flex;justify-content:space-between;margin-bottom:4px">' + s.n + '<span style="color:var(--mut);font-weight:400">' + s.q + ' m</span></b>' + body +
+      '<div class="links"><a href="https://www.arpa.piemonte.it/rischi_naturali/snippets_arpa_graphs/dettaglio_stazione/?id=' + s.id + '&param=nivo" target="_blank" rel="noopener">📈 Grafici Arpa della stazione →</a></div></div>';
+  }).join('');
+}
 let rb = LS.get('ml.rb', null), liveOn = false;
 function kv(k, v){ return v == null || v === '' ? '' : '<div class="kv"><span>' + k + '</span><b>' + esc(v) + '</b></div>'; }
 function renderLive(loadingRB){
@@ -461,8 +514,7 @@ function renderLive(loadingRB){
 
   L.innerHTML =
     '<h2>Riserva Bianca</h2><div class="card">' + rbHtml + '</div>' +
-    '<h2>Stazioni Arpa Piemonte</h2><div class="card"><div class="kv"><span>Limone Pancani</span><b>1851 m</b></div><div class="kv"><span>Rocca dell\'Abisso</span><b>Arpa</b></div>' +
-      '<div class="links"><a href="https://www.arpa.piemonte.it/rischi_naturali/snippets_arpa_graphs/map_sensori/" target="_blank" rel="noopener">📈 Apri i dati in tempo reale di Arpa →</a></div></div>' +
+    '<h2>Stazioni Arpa Piemonte</h2>' + arpaCard(loadingRB) +
     '<h2>Diretta video</h2><div class="cam"><div class="yt"><iframe src="https://www.youtube.com/embed/live_stream?channel=UCqz6HBb2cM5rPs7CBZH75vQ&mute=1&playsinline=1" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen title="Diretta Limone Piemonte"></iframe></div></div>' +
     '<h2>Webcam</h2>' + CAMS.map(c =>
       '<div class="cam"><b>' + c.n + '<span></span></b><a href="https://riservabianca.it/info" target="_blank" rel="noopener"><img data-id="' + c.id + '" data-b="0" src="' + camUrl(c.id, 0) + '" alt="' + c.n + '" onerror="camErr(this)" onload="camOk(this)"></a></div>').join('') +
@@ -474,8 +526,9 @@ function renderLive(loadingRB){
 }
 async function showLive(){
   renderLive(true);
-  const r = await loadRB();
+  const [r, a] = await Promise.all([loadRB(), loadArpa()]);
   if (r){ rb = r; LS.set('ml.rb', rb); }
+  if (a){ arpa = a; LS.set('ml.arpa', arpa); }
   if (liveOn) renderLive(false);
 }
 $('tabs').addEventListener('click', e => {
