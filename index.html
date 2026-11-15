@@ -93,6 +93,13 @@ input{width:100%;background:rgba(0,0,0,.25);border:1px solid var(--line);color:v
 .kv{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line);font-size:14px}
 .kv:last-child{border-bottom:0}
 .kv span{color:var(--mut)}
+.seg{display:flex;gap:6px;margin:0 16px 8px}
+.seg button{flex:1;background:var(--card);border:1px solid var(--line);color:var(--mut);border-radius:10px;padding:7px 4px;font-size:13px;font-weight:600}
+.seg button.on{background:var(--acc);border-color:var(--acc);color:#06213a}
+.frame{margin:0 16px 6px;border-radius:14px;overflow:hidden;background:#fff}
+.frame iframe{display:block;width:100%;border:0}
+.leaflet-container{background:#0b1e33}
+.src{display:block;text-align:center;font-size:12px;color:var(--mut);margin:4px 16px 0}
 [hidden]{display:none!important}
 </style>
 </head>
@@ -353,6 +360,7 @@ function render(){
         : '<div class="note">Per questo giorno arrivano solo dati parziali dai modelli.</div>') +
       '</div></div>';
   });
+  html += sfHtml();
   M.innerHTML = html;
 
   $('foot').innerHTML = 'Ogni valore è la mediana pesata dei modelli disponibili, con più peso a quelli ad alta risoluzione sulle Alpi (MeteoSvizzera, AROME, ItaliaMeteo). ' +
@@ -360,6 +368,75 @@ function render(){
     'Modelli usati ora: ' + ms.map(x => esc(x.m.n)).join(', ') + '.<br>' +
     'Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
 }
+
+
+// ---------- Snow-Forecast (widget ufficiale), radar (RainViewer) e mappe (Windy) ----------
+function sfHtml(){
+  return '<h2>Nevicate · Snow-Forecast</h2>' +
+    '<div class="frame"><iframe title="Snow-Forecast Limone Piemonte" scrolling="no" style="height:360px" src="https://www.snow-forecast.com/resorts/LimonePiemonte/forecasts/widget/mid/m"></iframe></div>' +
+    '<a class="src" href="https://it.snow-forecast.com/resorts/LimonePiemonte/6day/mid?utm_source=embeddable&utm_medium=widget&utm_campaign=LimonePiemonte" target="_blank" rel="noopener">Previsione completa su <u>Snow-Forecast.com</u> →</a>';
+}
+const WL = {radar:'Radar', rain:'Pioggia prevista', snowAccu:'Neve prevista'};
+function windyUrl(ov){
+  const p = new URLSearchParams({lat:'44.20', lon:'7.58', detailLat:'44.20', detailLon:'7.58', zoom:'9',
+    level:'surface', overlay: ov, product:'ecmwf', menu:'', message:'true', marker:'true', calendar:'24',
+    pressure:'', type:'map', location:'coordinates', detail:'', metricWind:'km/h', metricTemp:'°C', metricRain:'mm', metricSnow:'cm'});
+  return 'https://embed.windy.com/embed2.html?' + p.toString();
+}
+function radarHtml(){
+  return '<h2>Radar e mappe</h2><div class="seg" id="wlSeg">' +
+    Object.keys(WL).map(k => '<button data-wl="' + k + '" class="' + (k === 'radar' ? 'on' : '') + '">' + WL[k] + '</button>').join('') + '</div>' +
+    '<div class="frame" id="rBox" style="background:#0b1e33"><div id="rmap" style="height:420px"></div></div>' +
+    '<div class="frame" id="wBox" hidden><iframe id="wlFrame" title="Mappa Windy" style="height:420px" allowfullscreen></iframe></div>' +
+    '<div class="seg" id="rCtl"><button id="rplay">▶ Animazione</button><button id="rtime" disabled>Radar…</button></div>' +
+    '<span class="src" id="wSrc" hidden>Mappa: Windy.com · scegli 12 ore, 24 ore, 3 o 5 giorni in basso</span>';
+}
+let rmap = null, rTimer = null;
+function loadLeaflet(){
+  return new Promise((res, rej) => {
+    if (window.L) return res();
+    const c = document.createElement('link'); c.rel = 'stylesheet'; c.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css'; document.head.appendChild(c);
+    const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js'; s.onload = res; s.onerror = rej; document.head.appendChild(s);
+  });
+}
+function stopRadar(){ if (rTimer){ clearInterval(rTimer); rTimer = null; } const b = $('rplay'); if (b) b.textContent = '▶ Animazione'; }
+async function initRadar(){
+  stopRadar();
+  if (rmap){ try{ rmap.remove(); }catch(e){} rmap = null; }
+  const box = $('rmap'); if (!box) return;
+  try{ await loadLeaflet(); }catch(e){ box.innerHTML = '<div class="note" style="padding:16px">Mappa non disponibile senza connessione.</div>'; return; }
+  let j = null;
+  try{ j = await (await fetchT('https://api.rainviewer.com/public/weather-maps.json', 8000)).json(); }catch(e){}
+  if (!$('rmap') || !liveOn) return;
+  rmap = L.map(box, {zoomControl: true}).setView([44.17, 7.58], 8);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {attribution: '© OpenStreetMap © CARTO', subdomains: 'abcd', maxZoom: 12}).addTo(rmap);
+  L.circleMarker([44.2016, 7.5764], {radius: 6, color: '#ffc857', weight: 2, fillOpacity: .9}).addTo(rmap).bindTooltip('Limone');
+  const frames = j && j.radar ? (j.radar.past || []).concat(j.radar.nowcast || []) : [];
+  if (!frames.length){ $('rtime').textContent = 'Radar non disponibile ora'; return; }
+  const layers = frames.map(f => L.tileLayer(j.host + f.path + '/256/{z}/{x}/{y}/2/1_1.png',
+    {opacity: 0, maxNativeZoom: 7, maxZoom: 12, attribution: 'Radar © RainViewer'}).addTo(rmap));
+  let i = frames.length - 1;
+  const show = k => {
+    layers.forEach((l, n) => l.setOpacity(n === k ? 0.8 : 0));
+    const d = new Date(frames[k].time * 1000);
+    $('rtime').textContent = (k === frames.length - 1 ? 'Ultimo radar ' : 'Radar ') + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  };
+  show(i);
+  $('rplay').onclick = () => {
+    if (rTimer){ stopRadar(); i = frames.length - 1; show(i); return; }
+    $('rplay').textContent = '⏸ Ferma';
+    rTimer = setInterval(() => { i = (i + 1) % frames.length; show(i); }, 600);
+  };
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-wl]'); if (!b) return;
+  const ov = b.dataset.wl;
+  [...$('wlSeg').children].forEach(x => x.classList.toggle('on', x === b));
+  const isR = ov === 'radar';
+  $('rBox').hidden = !isR; $('rCtl').hidden = !isR; $('wBox').hidden = isR; $('wSrc').hidden = isR;
+  if (isR){ stopRadar(); if (rmap) setTimeout(() => rmap.invalidateSize(), 50); }
+  else { stopRadar(); $('wlFrame').src = windyUrl(ov); }
+});
 
 // ---------- impostazioni ----------
 function openSettings(){
@@ -546,9 +623,18 @@ function renderLive(loadingRB){
       '<div class="note" style="padding:6px 0 0">Letto alle ' + pad(t.getHours()) + ':' + pad(t.getMinutes()) + (loadingRB ? ' · aggiorno…' : '') + '</div>';
   } else rbHtml = '<div class="note" style="padding:0">' + (loadingRB ? 'Leggo i dati dal sito della Riserva Bianca…' : 'Dati non raggiungibili in questo momento.') + '</div>';
 
+  if ($('liveRB')){
+    $('liveRB').innerHTML = rbHtml; $('liveArpa').innerHTML = arpaCard(loadingRB);
+    CAMS.forEach(c => { // appena arriva l'ora esatta degli scatti, aggiorno le webcam
+      const im = document.querySelector('img[data-id="' + c.id + '"]'), st = rb && rb.cams && rb.cams[c.id];
+      if (im && st && im.src.indexOf(st) < 0){ im.dataset.b = 0; im.src = camSrc(c.id); }
+    });
+    return;
+  }
   L.innerHTML =
-    '<h2>Riserva Bianca</h2><div class="card">' + rbHtml + '</div>' +
-    '<h2>Stazioni Arpa Piemonte</h2>' + arpaCard(loadingRB) +
+    '<h2>Riserva Bianca</h2><div class="card" id="liveRB">' + rbHtml + '</div>' +
+    '<h2>Stazioni Arpa Piemonte</h2><div id="liveArpa">' + arpaCard(loadingRB) + '</div>' +
+    radarHtml() +
     '<h2>Diretta video</h2><div class="cam"><div class="yt"><iframe src="https://www.youtube.com/embed/live_stream?channel=UCqz6HBb2cM5rPs7CBZH75vQ&mute=1&playsinline=1" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen title="Diretta Limone Piemonte"></iframe></div></div>' +
     '<h2>Webcam</h2>' + CAMS.map(c =>
       '<div class="cam"><b>' + c.n + '<span></span></b><a href="https://riservabianca.it/info" target="_blank" rel="noopener"><img data-id="' + c.id + '" data-b="0" src="' + camSrc(c.id) + '" alt="' + c.n + '" onerror="camErr(this)" onload="camOk(this)"></a></div>').join('') +
@@ -559,7 +645,9 @@ function renderLive(loadingRB){
       '<a href="https://www.tunneltenda.it/" target="_blank" rel="noopener">🚗 Tunnel del Tenda: orari</a></div>';
 }
 async function showLive(){
+  const first = !$('liveRB');
   renderLive(true);
+  if (first) initRadar();
   const [r, a] = await Promise.all([loadRB(), loadArpa()]);
   if (r){ rb = r; LS.set('ml.rb', rb); }
   if (a){ arpa = a; LS.set('ml.arpa', arpa); }
@@ -570,7 +658,7 @@ $('tabs').addEventListener('click', e => {
   liveOn = b.dataset.v === 'live';
   [...$('tabs').children].forEach(x => x.classList.toggle('on', x === b));
   $('vPrev').hidden = liveOn; $('vLive').hidden = !liveOn;
-  if (liveOn) showLive(); else $('vLive').innerHTML = ''; // chiude il video quando torni alle previsioni
+  if (liveOn) showLive(); else { stopRadar(); if (rmap){ try{ rmap.remove(); }catch(e){} rmap = null; } $('vLive').innerHTML = ''; } // chiude video e radar quando torni alle previsioni
 });
 
 $('locs').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; cur = +b.dataset.i; LS.set('ml.cur', cur); render(); });
