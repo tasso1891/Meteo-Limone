@@ -98,6 +98,11 @@ input{width:100%;background:rgba(0,0,0,.25);border:1px solid var(--line);color:v
 .seg button.on{background:var(--acc);border-color:var(--acc);color:#06213a}
 .frame{margin:0 16px 6px;border-radius:14px;overflow:hidden;background:#fff}
 .frame iframe{display:block;width:100%;border:0}
+.allerta{display:block;margin:8px 16px 4px;padding:10px 12px;border-radius:14px;background:var(--card);border:1px solid;border-left-width:6px;color:var(--txt);text-decoration:none}
+.al-h{font-weight:700;font-size:14px;margin-bottom:4px}
+.al-d{font-size:13px;display:flex;align-items:center;gap:6px;margin:3px 0}
+.al-dot{width:11px;height:11px;border-radius:50%;flex:0 0 11px}
+.al-s{font-size:11px;color:var(--mut);margin-top:5px}
 .leaflet-container{background:#0b1e33}
 .src{display:block;text-align:center;font-size:12px;color:var(--mut);margin:4px 16px 0}
 [hidden]{display:none!important}
@@ -109,6 +114,7 @@ input{width:100%;background:rgba(0,0,0,.25);border:1px solid var(--line);color:v
   <button class="ib" id="bRef" aria-label="Aggiorna">↻</button>
   <button class="ib" id="bSet" aria-label="Impostazioni">⚙︎</button>
 </header>
+<div id="allerta"></div>
 <nav class="tabs" id="tabs"><button data-v="prev" class="on">Previsioni</button><button data-v="live">In diretta</button></nav>
 <div id="vPrev">
 <nav class="locs" id="locs"></nav>
@@ -366,7 +372,7 @@ function render(){
   $('foot').innerHTML = 'Ogni valore è la mediana pesata dei modelli disponibili, con più peso a quelli ad alta risoluzione sulle Alpi (MeteoSvizzera, AROME, ItaliaMeteo). ' +
     'Il pallino indica quanto i modelli sono d\'accordo. Tocca un giorno per vedere le ore e il confronto tra i modelli.<br>' +
     'Modelli usati ora: ' + ms.map(x => esc(x.m.n)).join(', ') + '.<br>' +
-    'Versione app: 10 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
+    'Versione app: 12 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
 }
 
 
@@ -439,6 +445,58 @@ document.addEventListener('click', e => {
   if (isR){ stopRadar(); if (rmap) setTimeout(() => rmap.invalidateSize(), 50); }
   else { stopRadar(); $('wlFrame').src = windyUrl(ov); }
 });
+
+
+// ---------- allerta meteo (bollettino ufficiale Protezione Civile / Centro Funzionale Arpa Piemonte) ----------
+const LIV = [
+  {k:'ROSSA',     c:'#fd6767', t:'Allerta rossa'},
+  {k:'ARANCIONE', c:'#f0bf01', t:'Allerta arancione'},
+  {k:'GIALLA',    c:'#f8f865', t:'Allerta gialla'},
+  {k:'NESSUNA',   c:'#90c985', t:'Nessuna allerta'}
+];
+function livello(p){
+  if (!p) return null;
+  const v = ['Per rischio idrogeologico','Per rischio idraulico','Per rischio temporali','Rappresentata nella mappa'].map(k => p[k] || '').join(' | ').toUpperCase();
+  return LIV.find(l => l.k === 'NESSUNA' ? v.includes('NESSUNA ALLERTA') : v.includes('ALLERTA ' + l.k)) || null;
+}
+function rischi(p){
+  return ['idrogeologico','idraulico','temporali'].map(r => {
+    const m = (p['Per rischio ' + r] || '').toUpperCase().match(/ALLERTA (GIALLA|ARANCIONE|ROSSA)/);
+    return m ? 'rischio ' + r + ' (' + m[1].toLowerCase() + ')' : null;
+  }).filter(Boolean);
+}
+let al = LS.get('ml.al', null);
+async function loadAllerta(){
+  const own = (LS.get('ml.proxy','') || DEF_PROXY).trim().replace(/\/+$/, '');
+  try{
+    const r = await fetchT(own + '/?allerta=' + encodeURIComponent('Limone Piemonte'), 20000);
+    if (r.ok){ const j = await r.json(); if (j && (j.today || j.tomorrow)){ al = Object.assign({}, j, {ts: Date.now()}); LS.set('ml.al', al); } }
+  }catch(e){}
+  renderAllerta();
+}
+function renderAllerta(){
+  const el = $('allerta'); if (!el) return;
+  if (!al || !al.bollettino){ el.innerHTML = ''; return; }
+  // il bollettino ha "oggi" e "domani" riferiti al giorno in cui è uscito
+  const b = al.bollettino, bd = b.slice(0,4) + '-' + b.slice(4,6) + '-' + b.slice(6,8);
+  const today = nowKey().slice(0,10), dd = (a, c) => Math.round((new Date(c + 'T12:00:00') - new Date(a + 'T12:00:00')) / 864e5);
+  const off = dd(bd, today); // 0 = uscito oggi, 1 = uscito ieri
+  const giorni = [];
+  if (off === 0){ giorni.push(['Oggi', al.today], ['Domani', al.tomorrow]); }
+  else if (off === 1){ giorni.push(['Oggi', al.tomorrow]); }
+  else { el.innerHTML = ''; return; } // bollettino troppo vecchio: non lo mostro
+  const rows = giorni.map(([lab, p]) => {
+    const l = livello(p); if (!l) return '';
+    const r = rischi(p);
+    return '<div class="al-d"><span class="al-dot" style="background:' + l.c + '"></span><b>' + lab + '</b>&nbsp;' + l.t + (r.length ? ' · ' + r.join(', ') : '') + '</div>';
+  }).join('');
+  if (!rows){ el.innerHTML = ''; return; }
+  const worst = giorni.map(g => livello(g[1])).filter(Boolean).sort((x, y) => LIV.indexOf(x) - LIV.indexOf(y))[0];
+  const zona = (al.today && al.today['Nome zona']) || (al.tomorrow && al.tomorrow['Nome zona']) || '';
+  el.innerHTML = '<a class="allerta" style="border-color:' + worst.c + '" href="https://www.arpa.piemonte.it/bollettini" target="_blank" rel="noopener">' +
+    '<div class="al-h">Allerta meteo · Limone' + (zona ? ' <span style="font-weight:400;color:var(--mut)">(zona ' + esc(zona) + ')</span>' : '') + '</div>' + rows +
+    '<div class="al-s">Bollettino ufficiale del ' + b.slice(6,8) + '/' + b.slice(4,6) + ' ore ' + b.slice(9,11) + ':' + b.slice(11,13) + ' · tocca per i bollettini Arpa →</div></a>';
+}
 
 // ---------- impostazioni ----------
 function openSettings(){
@@ -611,6 +669,47 @@ function arpaCard(loading){
       '<div class="links"><a href="https://www.arpa.piemonte.it/rischi_naturali/snippets_arpa_graphs/dettaglio_stazione/?id=' + s.id + '&param=nivo" target="_blank" rel="noopener">📈 Grafici Arpa della stazione →</a></div></div>';
   }).join('');
 }
+
+// ---------- Centralina SimoMarco (simolimo.com, dati ThingSpeak) ----------
+const SIMO_URL = 'https://www.simolimo.com/meteo/centralinagraff.html';
+let simo = LS.get('ml.simo', null);
+function unita(n){ n = n.toLowerCase(); return /neve/.test(n) ? ' cm' : /umid/.test(n) && !/bulbo/.test(n) ? '%' : /temp|bulbo|rugiada|ir/.test(n) ? '°' : /press/.test(n) ? ' hPa' : /vento|wind/.test(n) ? ' km/h' : ''; }
+async function loadSimo(){
+  const h = await viaProxies(SIMO_URL, 200);
+  if (!h) return null;
+  const out = {ts: Date.now(), vals: [], when: null};
+  const t = toText(h);
+  const d = t.match(/(\d{4}-\d{2}-\d{2})/), u = t.match(/Ultimo dato\.*\s*(\d{1,2}:\d{2})/i);
+  if (u) out.when = (d ? d[1].split('-').reverse().join('/') + ' ' : '') + 'ore ' + u[1];
+  // 1) se la pagina legge un canale ThingSpeak, prendo i dati direttamente da lì (con i nomi dei campi)
+  const ch = h.match(/channels\/(\d{3,8})\/(?:feeds?|fields?)/i), key = h.match(/api_key=([A-Z0-9]{16})/i);
+  if (ch){
+    try{
+      const r = await fetchT('https://api.thingspeak.com/channels/' + ch[1] + '/feeds.json?results=1' + (key ? '&api_key=' + key[1] : ''), 10000);
+      const j = await r.json(), f = j.feeds && j.feeds[j.feeds.length - 1];
+      if (f){
+        for (let i = 1; i <= 8; i++){ const n = j.channel['field' + i], v = f['field' + i]; if (n && v != null && v !== '' && !isNaN(+v)) out.vals.push([n, +v]); }
+        const w = new Date(f.created_at); out.when = w.toLocaleDateString('it-IT',{day:'numeric',month:'short'}) + ' ore ' + pad(w.getHours()) + ':' + pad(w.getMinutes());
+      }
+    }catch(e){}
+  }
+  // 2) altrimenti leggo i valori scritti nella pagina per gli indicatori (es. ['Temperatura', 3.3])
+  if (!out.vals.length){
+    const re = /\[\s*['"]([A-Za-zÀ-ú.\s]{3,30})['"]\s*,\s*(-?\d+(?:\.\d+)?)\s*\]/g; let x;
+    while ((x = re.exec(h))) if (!/label|value/i.test(x[1])) out.vals.push([x[1].trim(), +x[2]]);
+  }
+  return out.vals.length ? out : null;
+}
+function simoCard(loading){
+  let body;
+  if (simo && simo.vals && simo.vals.length){
+    body = simo.vals.map(([n, v]) => kv(esc(n), (Math.round(v*10)/10).toString().replace('.', ',') + unita(n))).join('') +
+      '<div class="note" style="padding:6px 0 0">Ultimo dato: ' + esc(simo.when || '—') + (loading ? ' · aggiorno…' : '') + '</div>';
+  } else body = '<div class="note" style="padding:0">' + (loading ? 'Leggo i dati della centralina…' : 'Dati della centralina non leggibili in questo momento.') + '</div>';
+  return '<div class="card"><b style="display:flex;justify-content:space-between;margin-bottom:4px">Centralina SimoMarco<span style="color:var(--mut);font-weight:400">Limone</span></b>' + body +
+    '<div class="links"><a href="' + SIMO_URL + '" target="_blank" rel="noopener">📈 Grafici della centralina →</a></div></div>';
+}
+
 let rb = LS.get('ml.rb', null), liveOn = false;
 function kv(k, v){ return v == null || v === '' ? '' : '<div class="kv"><span>' + k + '</span><b>' + esc(v) + '</b></div>'; }
 function renderLive(loadingRB){
@@ -626,7 +725,7 @@ function renderLive(loadingRB){
   } else rbHtml = '<div class="note" style="padding:0">' + (loadingRB ? 'Leggo i dati dal sito della Riserva Bianca…' : 'Dati non raggiungibili in questo momento.') + '</div>';
 
   if ($('liveRB')){
-    $('liveRB').innerHTML = rbHtml; $('liveArpa').innerHTML = arpaCard(loadingRB);
+    $('liveRB').innerHTML = rbHtml; $('liveArpa').innerHTML = arpaCard(loadingRB); $('liveSimo').innerHTML = simoCard(loadingRB);
     CAMS.forEach(c => { // appena arriva l'ora esatta degli scatti, aggiorno le webcam
       const im = document.querySelector('img[data-id="' + c.id + '"]'), st = rb && rb.cams && rb.cams[c.id];
       if (im && st && im.src.indexOf(st) < 0){ im.dataset.b = 0; im.src = camSrc(c.id); }
@@ -636,6 +735,7 @@ function renderLive(loadingRB){
   L.innerHTML =
     '<h2>Riserva Bianca</h2><div class="card" id="liveRB">' + rbHtml + '</div>' +
     '<h2>Stazioni Arpa Piemonte</h2><div id="liveArpa">' + arpaCard(loadingRB) + '</div>' +
+    '<h2>Centralina SimoMarco</h2><div id="liveSimo">' + simoCard(loadingRB) + '</div>' +
     radarHtml() +
     '<h2>Diretta video</h2><div class="cam"><div class="yt"><iframe src="https://www.youtube.com/embed/live_stream?channel=UCqz6HBb2cM5rPs7CBZH75vQ&mute=1&playsinline=1" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen title="Diretta Limone Piemonte"></iframe></div></div>' +
     '<h2>Webcam</h2>' + CAMS.map(c =>
@@ -650,7 +750,8 @@ async function showLive(){
   const first = !$('liveRB');
   renderLive(true);
   if (first) initRadar();
-  const [r, a] = await Promise.all([loadRB(), loadArpa()]);
+  const [r, a, sm] = await Promise.all([loadRB(), loadArpa(), loadSimo()]);
+  if (sm){ simo = sm; LS.set('ml.simo', simo); }
   if (r){ rb = r; LS.set('ml.rb', rb); }
   if (a){ arpa = a; LS.set('ml.arpa', arpa); }
   if (liveOn) renderLive(false);
@@ -670,11 +771,12 @@ $('main').addEventListener('click', e => {
   document.querySelectorAll('.day.open').forEach(x => x.classList.remove('open'));
   if (open){ box.classList.add('open'); openDay = dh.dataset.d; } else openDay = null;
 });
-$('bRef').addEventListener('click', () => liveOn ? showLive() : load());
+$('bRef').addEventListener('click', () => { loadAllerta(); liveOn ? showLive() : load(); });
 $('bSet').addEventListener('click', openSettings);
-document.addEventListener('visibilitychange', () => { if (!document.hidden && (!raw || Date.now() - raw.ts > 30*60*1000)) load(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden && (!raw || Date.now() - raw.ts > 30*60*1000)){ load(); loadAllerta(); } });
 
 render();
+renderAllerta(); loadAllerta();
 if (!raw || raw.key !== locKey() || Date.now() - raw.ts > 30*60*1000) load();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js', {updateViaCache: 'none'}).then(r => r.update()).catch(() => {});
 </script>
