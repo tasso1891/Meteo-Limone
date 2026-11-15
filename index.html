@@ -366,7 +366,7 @@ function render(){
   $('foot').innerHTML = 'Ogni valore è la mediana pesata dei modelli disponibili, con più peso a quelli ad alta risoluzione sulle Alpi (MeteoSvizzera, AROME, ItaliaMeteo). ' +
     'Il pallino indica quanto i modelli sono d\'accordo. Tocca un giorno per vedere le ore e il confronto tra i modelli.<br>' +
     'Modelli usati ora: ' + ms.map(x => esc(x.m.n)).join(', ') + '.<br>' +
-    'Versione app: 8 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
+    'Versione app: 9 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
 }
 
 
@@ -376,10 +376,10 @@ function sfHtml(){
     '<div class="frame"><iframe title="Snow-Forecast Limone Piemonte" scrolling="no" style="height:360px" src="https://www.snow-forecast.com/resorts/LimonePiemonte/forecasts/widget/mid/m"></iframe></div>' +
     '<a class="src" href="https://it.snow-forecast.com/resorts/LimonePiemonte/6day/mid?utm_source=embeddable&utm_medium=widget&utm_campaign=LimonePiemonte" target="_blank" rel="noopener">Previsione completa su <u>Snow-Forecast.com</u> →</a>';
 }
-const WL = {radar:'Radar', rain:'Pioggia prevista', snowAccu:'Neve prevista'};
+const WL = {radar:'Radar', wind:'Vento', rain:'Pioggia', snowAccu:'Neve'};
 function windyUrl(ov){
   const p = new URLSearchParams({lat:'44.20', lon:'7.58', detailLat:'44.20', detailLon:'7.58', zoom:'9',
-    level:'surface', overlay: ov, product:'ecmwf', menu:'', message:'true', marker:'true', calendar:'24',
+    level:'surface', overlay: ov, product:'ecmwf', menu:'', message:'true', marker:'true', calendar: ov === 'wind' ? 'now' : '24',
     pressure:'', type:'map', location:'coordinates', detail:'', metricWind:'km/h', metricTemp:'°C', metricRain:'mm', metricSnow:'cm'});
   return 'https://embed.windy.com/embed2.html?' + p.toString();
 }
@@ -389,7 +389,8 @@ function radarHtml(){
     '<div class="frame" id="rBox" style="background:#0b1e33"><div id="rmap" style="height:420px"></div></div>' +
     '<div class="frame" id="wBox" hidden><iframe id="wlFrame" title="Mappa Windy" style="height:420px" allowfullscreen></iframe></div>' +
     '<div class="seg" id="rCtl"><button id="rplay">▶ Animazione</button><button id="rtime" disabled>Radar…</button></div>' +
-    '<span class="src" id="wSrc" hidden>Mappa: Windy.com · scegli 12 ore, 24 ore, 3 o 5 giorni in basso</span>';
+    '<span class="src" id="rSrc">Radar delle ultime 2 ore. Se non vedi zone colorate, ora non piove e non nevica in zona.</span>' +
+    '<span class="src" id="wSrc" hidden></span>';
 }
 let rmap = null, rTimer = null;
 function loadLeaflet(){
@@ -409,7 +410,7 @@ async function initRadar(){
   try{ j = await (await fetchT('https://api.rainviewer.com/public/weather-maps.json', 8000)).json(); }catch(e){}
   if (!$('rmap') || !liveOn) return;
   rmap = L.map(box, {zoomControl: true}).setView([44.17, 7.58], 8);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {attribution: '© OpenStreetMap © CARTO', subdomains: 'abcd', maxZoom: 12}).addTo(rmap);
+  L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {attribution: '© OpenStreetMap · © OpenTopoMap (CC-BY-SA)', subdomains: 'abc', maxZoom: 12, opacity: .85}).addTo(rmap);
   L.circleMarker([44.2016, 7.5764], {radius: 6, color: '#ffc857', weight: 2, fillOpacity: .9}).addTo(rmap).bindTooltip('Limone');
   const frames = j && j.radar ? (j.radar.past || []).concat(j.radar.nowcast || []) : [];
   if (!frames.length){ $('rtime').textContent = 'Radar non disponibile ora'; return; }
@@ -433,7 +434,8 @@ document.addEventListener('click', e => {
   const ov = b.dataset.wl;
   [...$('wlSeg').children].forEach(x => x.classList.toggle('on', x === b));
   const isR = ov === 'radar';
-  $('rBox').hidden = !isR; $('rCtl').hidden = !isR; $('wBox').hidden = isR; $('wSrc').hidden = isR;
+  $('rBox').hidden = !isR; $('rCtl').hidden = !isR; $('rSrc').hidden = !isR; $('wBox').hidden = isR; $('wSrc').hidden = isR;
+  $('wSrc').textContent = ov === 'wind' ? 'Mappa del vento: Windy.com · premi ▶ in basso per le prossime ore' : 'Mappa: Windy.com · scegli 12 ore, 24 ore, 3 o 5 giorni in basso';
   if (isR){ stopRadar(); if (rmap) setTimeout(() => rmap.invalidateSize(), 50); }
   else { stopRadar(); $('wlFrame').src = windyUrl(ov); }
 });
