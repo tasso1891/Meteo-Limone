@@ -171,40 +171,46 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>'
 const locKey = () => locs.map(l => [l.lat,l.lon,l.alt].join('/')).join('|');
 
 // ---------- download ----------
-function url(m, vars, list){
+// Una sola richiesta con TUTTI i modelli insieme: evita il blocco di Open-Meteo
+// (troppe richieste ravvicinate) che prima lasciava passare un solo modello.
+function url(vars, list){
   list = list || locs;
   const p = new URLSearchParams({
     latitude: list.map(l=>l.lat).join(','),
     longitude: list.map(l=>l.lon).join(','),
     elevation: list.map(l=>l.alt).join(','),
-    hourly: vars.join(','), models: m.id,
+    hourly: vars.join(','), models: MODELS.map(m=>m.id).join(','),
     timezone: 'Europe/Rome', forecast_days: '7', wind_speed_unit: 'kmh'
   });
   return 'https://api.open-meteo.com/v1/forecast?' + p.toString();
 }
-async function fetchModel(m, list){
-  let r = await fetch(url(m, VARS, list));
-  if (!r.ok) r = await fetch(url(m, VARS.filter(v => v !== 'freezing_level_height'), list));
-  if (!r.ok) throw new Error(m.id + ' ' + r.status);
+// scarica tutti i modelli in un colpo solo e li divide per modello (chiavi tipo temperature_2m_<id>)
+async function fetchAll(list){
+  list = list || locs;
+  let r = await fetchT(url(VARS, list), 20000);
+  if (!r.ok) r = await fetchT(url(VARS.filter(v => v !== 'freezing_level_height'), list), 20000);
+  if (!r.ok) throw new Error('meteo ' + r.status);
   let j = await r.json();
   if (j && j.error) throw new Error(j.reason);
-  if (!Array.isArray(j)) j = [j];
-  return j.map(x => {
-    const h = x.hourly || {}, o = {time: h.time || []};
-    VARS.forEach(v => { o[v] = h[v] ?? h[v + '_' + m.id] ?? null; });
-    return o;
+  if (!Array.isArray(j)) j = [j];   // con una sola località la risposta è un oggetto
+  const ok = [];
+  MODELS.forEach(m => {
+    const ld = j.map(x => {
+      const h = x.hourly || {}, o = {time: h.time || []};
+      VARS.forEach(v => { o[v] = (h[v + '_' + m.id] ?? h[v]) ?? null; });
+      return o;
+    });
+    if (ld.length === list.length && ld[0].time.length &&
+        ld[0].temperature_2m && ld[0].temperature_2m.some(v => v != null))
+      ok.push({id: m.id, locs: ld});   // tiene il modello solo se ha davvero dati
   });
+  return ok;
 }
 async function load(){
   if (loading) return;
   loading = true; $('bRef').classList.add('spin');
-  const res = await Promise.allSettled(MODELS.map(fetchModel));
-  const ok = [];
-  res.forEach((r,i) => {
-    if (r.status === 'fulfilled' && r.value.length === locs.length && r.value[0].time.length &&
-        r.value[0].temperature_2m && r.value[0].temperature_2m.some(v => v != null))
-      ok.push({id: MODELS[i].id, locs: r.value});
-  });
+  let ok = [];
+  try{ ok = await fetchAll(); }catch(e){ ok = []; }
   if (ok.length){ raw = {ts: Date.now(), key: locKey(), models: ok}; LS.set('ml.raw', raw); msg(''); }
   else msg(raw ? 'Nessuna connessione: mostro le ultime previsioni salvate.' : 'Impossibile scaricare le previsioni. Controlla la connessione e riprova.');
   loading = false; $('bRef').classList.remove('spin');
@@ -524,13 +530,8 @@ async function geocode(q){
   }catch(e){ return []; }
 }
 async function searchForecast(loc){
-  const res = await Promise.allSettled(MODELS.map(m => fetchModel(m, [{lat: loc.lat, lon: loc.lon, alt: loc.alt}])));
-  const ok = [];
-  res.forEach((r,i) => {
-    if (r.status === 'fulfilled' && r.value[0] && r.value[0].time.length &&
-        r.value[0].temperature_2m && r.value[0].temperature_2m.some(v => v != null))
-      ok.push({id: MODELS[i].id, locs: r.value});
-  });
+  let ok = [];
+  try{ ok = await fetchAll([{lat: loc.lat, lon: loc.lon, alt: loc.alt}]); }catch(e){ ok = []; }
   return ok.length ? ok : null;
 }
 function fcHtml(models, loc){
