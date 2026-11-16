@@ -410,6 +410,15 @@ function nowKey(){
 const relTxt = {alta:'Affidabilità alta', media:'Affidabilità media', bassa:'Affidabilità bassa'};
 // stato del cielo dalla nuvolosità (0-100%) del modello per l'ora attuale
 function cieloTxt(cc){ if (cc == null) return '–'; if (cc < 15) return 'Sereno'; if (cc < 40) return 'Poco nuv.'; if (cc < 75) return 'Nuvoloso'; return 'Coperto'; }
+// quanti modelli sono d'accordo su pioggia/neve: più onesto del solo numero
+function accordoHtml(d){
+  const m = d.per ? d.per.length : 0; if (!m) return '';
+  const nR = d.per.filter(p => (p.pr || 0) >= 0.5).length;
+  const nS = d.per.filter(p => p.sn != null && p.sn >= 0.5).length;
+  let s = '🌧️ ' + nR + '/' + m + ' danno pioggia';
+  if (nS > 0) s += ' · ❄️ ' + nS + '/' + m + ' neve';
+  return '<div class="note" style="padding:2px 12px 8px">Accordo modelli: ' + s + '</div>';
+}
 
 // ---------- interfaccia ----------
 function renderLocs(){
@@ -465,7 +474,7 @@ function render(){
         '<div class="r' + ((x.pr||0) < 0.05 ? ' z' : '') + '">' + nfmt(x.pr) + ' mm</div>' +
         ((x.sn||0) >= 0.05 ? '<div class="s">' + nfmt(x.sn) + ' cm</div>' : '') +
         '<div class="w">' + arrow(x.wd) + ' ' + r0(x.ws) + '</div><div class="w">raf. ' + r0(x.wg) + '</div></div>').join('') +
-      '</div>' +
+      '</div>' + accordoHtml(d) +
       (d.snowLine != null ? '<div class="note">Quota neve stimata quando precipita: circa ' + d.snowLine + ' m</div>' : '') +
       (d.per.length ? '<table class="models"><tr><th>Modello</th><th>min/max</th><th>mm</th><th>neve</th><th>raff.</th></tr>' +
         d.per.slice().sort((a,b) => b.m.w - a.m.w).map(p =>
@@ -480,7 +489,7 @@ function render(){
   $('foot').innerHTML = 'Ogni valore è la mediana pesata dei modelli disponibili, con più peso a quelli ad alta risoluzione sulle Alpi (MeteoSvizzera, AROME, ItaliaMeteo). ' +
     'Il pallino indica quanto i modelli sono d\'accordo. Tocca un giorno per vedere le ore e il confronto tra i modelli.<br>' +
     'Modelli usati ora: ' + ms.map(x => esc(x.m.n)).join(', ') + '.<br>' +
-    'Versione app: 26 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
+    'Versione app: 27 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
 }
 
 
@@ -662,7 +671,7 @@ function fcHtml(models, loc){
         '<div class="r' + ((x.pr||0) < 0.05 ? ' z' : '') + '">' + nfmt(x.pr) + ' mm</div>' +
         ((x.sn||0) >= 0.05 ? '<div class="s">' + nfmt(x.sn) + ' cm</div>' : '') +
         '<div class="w">' + arrow(x.wd) + ' ' + r0(x.ws) + '</div><div class="w">raf. ' + r0(x.wg) + '</div></div>').join('') +
-      '</div>' +
+      '</div>' + accordoHtml(d) +
       (d.snowLine != null ? '<div class="note">Quota neve stimata quando precipita: circa ' + d.snowLine + ' m</div>' : '') +
       (d.per.length ? '<table class="models"><tr><th>Modello</th><th>min/max</th><th>mm</th><th>neve</th><th>raff.</th></tr>' +
         d.per.slice().sort((a,b) => b.m.w - a.m.w).map(p =>
@@ -763,7 +772,15 @@ async function loadValanghe(){
 }
 function renderValanghe(){
   const el = $('valanghe'); if (!el) return;
-  if (!val){ el.innerHTML = ''; return; }
+  if (!val){
+    const m = new Date().getMonth() + 1;   // in stagione (nov–mag) mostro un segnaposto in attesa del bollettino
+    el.innerHTML = (m >= 11 || m <= 5)
+      ? '<a class="allerta" style="border-color:#3a4a5a;opacity:.8" href="https://bollettini.aineva.it/bulletin/latest?region=IT-21" target="_blank" rel="noopener">' +
+        '<div class="al-h">Pericolo valanghe · Alpi Marittime</div>' +
+        '<div class="al-s">In attesa del primo bollettino AINEVA della stagione · tocca per verificare →</div></a>'
+      : '';
+    return;
+  }
   const top = val.ratings.slice().sort((a,b) => b.n - a.n)[0];
   const righe = val.ratings.map(r => '<div class="al-d"><span class="al-dot" style="background:' + r.col + '"></span><b>' + r.n + ' · ' + r.lab + '</b>' + (r.banda ? ' <span style="color:var(--mut)">(' + r.banda + ')</span>' : '') + '</div>').join('');
   el.innerHTML = '<a class="allerta" style="border-color:' + top.col + '" href="https://bollettini.aineva.it/bulletin/latest?region=IT-21" target="_blank" rel="noopener">' +
