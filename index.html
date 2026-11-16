@@ -149,7 +149,7 @@ const MODELS = [
 ];
 const VARS = ['temperature_2m','precipitation','snowfall','wind_speed_10m','wind_gusts_10m','wind_direction_10m','cloud_cover','freezing_level_height'];
 const DEF_LOCS = [
-  {nome:'Limone',    lat:44.2016, lon:7.5764, alt:1010},
+  {nome:'Limone',    lat:44.2016, lon:7.5764, alt:1171},   // quota del giardino (termometro SwitchBot)
   {nome:'Limonetto', lat:44.1706, lon:7.5640, alt:1294},
   {nome:'Pancani',   lat:44.1617, lon:7.5908, alt:1851}   // punto della stazione Arpa "Limone Pancani"
 ];
@@ -162,6 +162,9 @@ const LS = {
 let locs = LS.get('ml.locs', DEF_LOCS);
 // correzione della prima versione: Pancani era stimato a 1400 m
 locs.forEach(l => { if (l.lat === 44.1890 && l.lon === 7.5950){ l.lat = 44.1617; l.lon = 7.5908; l.alt = 1851; } });
+// Limone alla quota reale del giardino (1171 m) anche per chi ha già la quota 1010 salvata
+locs.forEach(l => { if (l.lat === 44.2016 && l.lon === 7.5764 && l.alt === 1010){ l.alt = 1171; } });
+LS.set('ml.locs', locs);
 let cur = LS.get('ml.cur', 0); if (cur >= locs.length) cur = 0;
 let raw = LS.get('ml.raw', null);
 let openDay = null, loading = false;
@@ -236,13 +239,8 @@ async function obsArpa(code){
   if (!j || !Array.isArray(j.data)) return [];
   return j.data.filter(r => r.air_temperature != null).map(r => ({k: oraRoma(Date.parse(r.date)), temp: +r.air_temperature})).filter(o => o.k && isFinite(o.temp));
 }
-async function obsSimo(){
-  try{
-    const r = await fetchT('https://api.thingspeak.com/channels/' + SIMO_CH1.id + '/feeds.json?results=300&api_key=' + SIMO_CH1.key, 12000);
-    const j = await r.json();
-    return (j.feeds || []).map(f => { const o = simoConv(f); return o.temp == null ? null : {k: oraRoma(Date.parse(f.created_at)), temp: o.temp}; }).filter(o => o && o.k && isFinite(o.temp));
-  }catch(e){ return []; }
-}
+// storico del termometro giardino (SwitchBot, ~1010 m come Limone paese): è il riferimento giusto per Limone
+function obsGarden(){ const h = LS.get('ml.sbhist', {}); return Object.keys(h).map(k => ({k, temp: +h[k]})).filter(o => isFinite(o.temp)); }
 const median = a => { if (!a.length) return null; a = a.slice().sort((x,y) => x - y); return a[Math.floor(a.length/2)]; };
 // Scarto medio (modello meno reale) PER OGNI ORA DEL GIORNO. Per ogni ora uso una
 // finestra di ±1 h (così ho abbastanza campioni) e la mediana. Dove i dati mancano
@@ -268,7 +266,8 @@ async function refreshBias(){
   const ora = nowKey().slice(0,13);                     // ora attuale in ora italiana
   const past = {};                                      // temp passate del modello combinato, per località
   locs.forEach((l,li) => { const {H} = build(raw.models, li, 0); past[li] = H.filter(h => h.t.slice(0,13) < ora).map(h => ({k: h.t.slice(0,13), temp: h.temp})); });
-  const [oSimo, oArpa] = await Promise.all([obsSimo(), obsArpa('S4613')]);
+  await loadSwitchbot();   // registra una lettura del giardino e aggiorna lo storico
+  const [oGiardino, oArpa] = [obsGarden(), await obsArpa('S4613')];
   const nb = Object.assign({}, bias);
   const smussa = (li, grezzo) => {   // media smorzata ora per ora: si muove piano
     if (!grezzo || !locs[li]) return null;
@@ -277,8 +276,8 @@ async function refreshBias(){
     nb[k] = v; return v;
   };
   const iL = nearIdx(44.2016, 7.5764), iP = nearIdx(44.1617, 7.5908);   // Limone paese / Pancani
-  const bL = iL >= 0 ? smussa(iL, calcBias(past[iL], oSimo)) : null;
-  const bP = iP >= 0 ? smussa(iP, calcBias(past[iP], oArpa)) : null;
+  const bL = iL >= 0 ? smussa(iL, calcBias(past[iL], oGiardino)) : null;   // Limone: tarato sul giardino SwitchBot
+  const bP = iP >= 0 ? smussa(iP, calcBias(past[iP], oArpa)) : null;       // Pancani: tarato su Arpa
   // località senza centralina (es. Limonetto): interpolo per quota tra Limone e Pancani, ora per ora
   if (bL && bP && iL >= 0 && iP >= 0 && locs[iL].alt !== locs[iP].alt){
     locs.forEach((l,li) => { if (li === iL || li === iP) return;
@@ -315,10 +314,21 @@ function build(models, li, corr){
     const idx = {}; x.d.time.forEach((t,i) => idx[t] = i);
     x.a = {};
     VARS.forEach(v => { const arr = x.d[v]; x.a[v] = times.map(t => { const i = idx[t]; return arr && i != null && arr[i] != null ? arr[i] : null; }); });
-    // correzione temperatura PER ORA DEL GIORNO (corr[0..23]): di notte il modello sbaglia
-    // di più (inversione in conca), di giorno quasi niente. Così ore, giorni e tabella restano coerenti.
-    if (corr) x.a.temperature_2m = x.a.temperature_2m.map((v,i) => v == null ? null : v - (corr[+times[i].slice(11,13)] || 0));
   });
+  // Correzione temperatura PER ORA DEL GIORNO (corr[0..23], scarto medio sulla centralina),
+  // ma applicata SOLO quando è probabile l'inversione termica in conca: cielo sereno e poco
+  // vento. Con nuvole o vento l'inversione non si forma e la correzione si annulla da sola.
+  if (corr && corr.some(v => v)){
+    const comb = (v,i) => wmed(ms.map(x => ({v: x.a[v][i], w: x.m.w})).filter(o => o.v != null));
+    const fac = times.map((t,i) => {
+      const cc = comb('cloud_cover', i), ws = comb('wind_speed_10m', i);
+      let f = 1;
+      if (cc != null) f *= Math.max(0, Math.min(1, (85 - cc) / 70));   // nuvoloso -> poca inversione
+      if (ws != null) f *= Math.max(0, Math.min(1, (18 - ws) / 14));   // ventoso -> niente inversione
+      return f;
+    });
+    ms.forEach(x => { x.a.temperature_2m = x.a.temperature_2m.map((v,i) => v == null ? null : v - (corr[+times[i].slice(11,13)] || 0) * fac[i]); });
+  }
   const H = times.map((t,i) => {
     const g = v => ms.map(x => ({v: x.a[v][i], w: x.m.w})).filter(o => o.v != null);
     return {t, temp: wmed(g('temperature_2m')), pr: wmed(g('precipitation')), sn: wmed(g('snowfall')),
@@ -467,7 +477,7 @@ function render(){
   $('foot').innerHTML = 'Ogni valore è la mediana pesata dei modelli disponibili, con più peso a quelli ad alta risoluzione sulle Alpi (MeteoSvizzera, AROME, ItaliaMeteo). ' +
     'Il pallino indica quanto i modelli sono d\'accordo. Tocca un giorno per vedere le ore e il confronto tra i modelli.<br>' +
     'Modelli usati ora: ' + ms.map(x => esc(x.m.n)).join(', ') + '.<br>' +
-    'Versione app: 20 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
+    'Versione app: 24 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
 }
 
 
@@ -1063,6 +1073,36 @@ function simoCard(loading){
 }
 let rb = LS.get('ml.rb', null), liveOn = false;
 function kv(k, v){ return v == null || v === '' ? '' : '<div class="kv"><span>' + k + '</span><b>' + esc(v) + '</b></div>'; }
+
+// ---------- Termometro SwitchBot (giardino a Limone, via worker che firma la richiesta) ----------
+let sb = LS.get('ml.sb', null);
+async function loadSwitchbot(){
+  const own = (LS.get('ml.proxy', '') || DEF_PROXY).trim().replace(/\/+$/, '');
+  if (!own) return null;
+  try{
+    const r = await fetchT(own + '/?switchbot=temp', 12000);
+    const j = await r.json();
+    if (!j || j.errore || j.temp == null) return null;
+    const rec = {temp: j.temp, hum: j.hum, when: Date.now()};
+    sb = rec; LS.set('ml.sb', sb);
+    // storico per la taratura futura: tengo l'ultima lettura per ogni ora italiana, ultimi 10 giorni
+    const hist = LS.get('ml.sbhist', {}); hist[oraRoma(rec.when)] = rec.temp;
+    const lim = oraRoma(Date.now() - 10*864e5);
+    Object.keys(hist).forEach(k => { if (k < lim) delete hist[k]; });
+    LS.set('ml.sbhist', hist);
+    return sb;
+  }catch(e){ return null; }
+}
+function sbCard(loading){
+  const n1 = x => x == null ? null : (Math.round(x*10)/10).toString().replace('.', ',');
+  let body;
+  if (sb && sb.temp != null){
+    const t = new Date(sb.when);
+    body = kv('Temperatura', n1(sb.temp) + '°') + kv('Umidità', sb.hum != null ? sb.hum + '%' : null) +
+      '<div class="note" style="padding:6px 0 0">Letto alle ' + pad(t.getHours()) + ':' + pad(t.getMinutes()) + (loading ? ' · aggiorno…' : '') + '</div>';
+  } else body = '<div class="note" style="padding:0">' + (loading ? 'Leggo il termometro…' : 'Termometro non configurato o non raggiungibile.') + '</div>';
+  return '<div class="card"><b style="display:flex;justify-content:space-between;margin-bottom:4px">Termometro giardino<span style="color:var(--mut);font-weight:400">SwitchBot</span></b>' + body + '</div>';
+}
 function renderLive(loadingRB){
   const L = $('vLive');
   let rbHtml;
@@ -1077,6 +1117,7 @@ function renderLive(loadingRB){
 
   if ($('liveRB')){
     $('liveRB').innerHTML = rbHtml; $('liveArpa').innerHTML = arpaCard(loadingRB); $('liveSimo').innerHTML = simoCard(loadingRB);
+    if ($('liveSB')) $('liveSB').innerHTML = sbCard(loadingRB);
     CAMS.forEach(c => { // appena arriva l'ora esatta degli scatti, aggiorno le webcam
       const im = document.querySelector('img[data-id="' + c.id + '"]'), st = rb && rb.cams && rb.cams[c.id];
       if (im && st && im.src.indexOf(st) < 0){ im.dataset.b = 0; im.src = camSrc(c.id); }
@@ -1087,6 +1128,7 @@ function renderLive(loadingRB){
     '<h2>Riserva Bianca</h2><div class="card" id="liveRB">' + rbHtml + '</div>' +
     '<h2>Stazioni Arpa Piemonte</h2><div id="liveArpa">' + arpaCard(loadingRB) + '</div>' +
     '<h2>Centralina SimoMarco</h2><div id="liveSimo">' + simoCard(loadingRB) + '</div>' +
+    '<h2>Termometro giardino</h2><div id="liveSB">' + sbCard(loadingRB) + '</div>' +
     radarHtml() +
     '<h2>Diretta video</h2><div class="cam"><div class="yt"><iframe src="https://www.youtube.com/embed/live_stream?channel=UCqz6HBb2cM5rPs7CBZH75vQ&mute=1&playsinline=1" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen title="Diretta Limone Piemonte"></iframe></div></div>' +
     '<h2>Webcam</h2>' + CAMS.map(c =>
@@ -1101,7 +1143,7 @@ async function showLive(){
   const first = !$('liveRB');
   renderLive(true);
   if (first) initRadar();
-  const [r, a, sm] = await Promise.all([loadRB(), loadArpa(), loadSimo()]);
+  const [r, a, sm] = await Promise.all([loadRB(), loadArpa(), loadSimo(), loadSwitchbot()]);
   if (sm){ simo = sm; LS.set('ml.simo', simo); }
   if (r){ rb = r; LS.set('ml.rb', rb); }
   if (a){ arpa = a; LS.set('ml.arpa', arpa); }
