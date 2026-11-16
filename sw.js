@@ -1,4 +1,4 @@
-const CACHE = 'meteo-limone-v19';
+const CACHE = 'meteo-limone-v20';
 const SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
