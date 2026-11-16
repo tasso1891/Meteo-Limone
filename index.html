@@ -228,16 +228,20 @@ function msg(t){ $('msg').innerHTML = t ? '<div class="msg">' + esc(t) + '</div>
 // previsioni future. Correggo solo la temperatura, con limiti prudenti: se ho
 // pochi dati non correggo nulla (non deve mai peggiorare).
 let bias = LS.get('ml.bias', {});   // chiave "lat,lon" -> array[24] di scarti °C per ora del giorno (modello meno reale)
+let anchor = LS.get('ml.anchor', {}); // chiave "lat,lon" -> {temp, ts}: ultima temperatura reale, per ancorare le prossime ore
 function biasKey(l){ return l.lat.toFixed(3) + ',' + l.lon.toFixed(3); }
 const ZERO24 = () => new Array(24).fill(0);
 function biasFor(li){ const v = locs[li] ? bias[biasKey(locs[li])] : null; return (Array.isArray(v) && v.length === 24) ? v : ZERO24(); }
 function nearIdx(lat, lon){ let bi = -1, bd = 9; locs.forEach((l,i) => { const d = Math.hypot(l.lat-lat, l.lon-lon); if (d < bd){ bd = d; bi = i; } }); return bd < 0.04 ? bi : -1; }  // ~4 km
 // "ora di orologio" italiana di un istante -> "2026-11-16T07" (indipendente dal fuso del telefono)
 function oraRoma(ms){ try{ return new Date(ms).toLocaleString('sv-SE', {timeZone:'Europe/Rome'}).slice(0,13).replace(' ','T'); }catch(e){ return null; } }
-async function obsArpa(code){
+async function obsArpa(code){   // ritorna la serie oraria (per la taratura) e l'ultima lettura (per l'ancoraggio)
   const j = await getJson('https://utility.arpa.piemonte.it/api_realtime/data_pie?station_code=' + code + '&page_size=500');
-  if (!j || !Array.isArray(j.data)) return [];
-  return j.data.filter(r => r.air_temperature != null).map(r => ({k: oraRoma(Date.parse(r.date)), temp: +r.air_temperature})).filter(o => o.k && isFinite(o.temp));
+  if (!j || !Array.isArray(j.data)) return {series: [], last: null};
+  const rows = j.data.filter(r => r.air_temperature != null).map(r => ({t: Date.parse(r.date), temp: +r.air_temperature})).filter(o => isFinite(o.t) && isFinite(o.temp));
+  const series = rows.map(r => ({k: oraRoma(r.t), temp: r.temp}));
+  const last = rows.length ? rows.reduce((b, o) => o.t > b.t ? o : b) : null;
+  return {series, last: last ? {temp: last.temp, ts: last.t} : null};
 }
 // storico del termometro giardino (SwitchBot, ~1010 m come Limone paese): è il riferimento giusto per Limone
 function obsGarden(){ const h = LS.get('ml.sbhist', {}); return Object.keys(h).map(k => ({k, temp: +h[k]})).filter(o => isFinite(o.temp)); }
@@ -269,6 +273,18 @@ async function refreshBias(){
   await loadSwitchbot();   // registra una lettura del giardino e aggiorna lo storico
   const [oGiardino, oArpa] = [obsGarden(), await obsArpa('S4613')];
   const nb = Object.assign({}, bias);
+  // ancoraggio: salvo la temperatura REALE di adesso (giardino per Limone, Arpa per Pancani)
+  const na = {};
+  const iL0 = nearIdx(44.2016, 7.5764), iP0 = nearIdx(44.1617, 7.5908);
+  if (iL0 >= 0 && sb && sb.temp != null) na[biasKey(locs[iL0])] = {temp: sb.temp, ts: sb.when};
+  if (iP0 >= 0 && oArpa.last) na[biasKey(locs[iP0])] = {temp: oArpa.last.temp, ts: oArpa.last.ts};
+  const aL0 = iL0 >= 0 ? na[biasKey(locs[iL0])] : null, aP0 = iP0 >= 0 ? na[biasKey(locs[iP0])] : null;
+  if (aL0 && aP0 && locs[iL0].alt !== locs[iP0].alt){   // località senza centralina: interpolo per quota
+    locs.forEach((l,li) => { if (li === iL0 || li === iP0) return;
+      const f = (l.alt - locs[iL0].alt) / (locs[iP0].alt - locs[iL0].alt);
+      na[biasKey(l)] = {temp: Math.round((aL0.temp + (aP0.temp - aL0.temp) * f) * 10) / 10, ts: Math.min(aL0.ts, aP0.ts)}; });
+  }
+  anchor = na; LS.set('ml.anchor', anchor);
   const smussa = (li, grezzo) => {   // media smorzata ora per ora: si muove piano
     if (!grezzo || !locs[li]) return null;
     const k = biasKey(locs[li]), prev = (Array.isArray(nb[k]) && nb[k].length === 24) ? nb[k] : grezzo;
@@ -277,7 +293,7 @@ async function refreshBias(){
   };
   const iL = nearIdx(44.2016, 7.5764), iP = nearIdx(44.1617, 7.5908);   // Limone paese / Pancani
   const bL = iL >= 0 ? smussa(iL, calcBias(past[iL], oGiardino)) : null;   // Limone: tarato sul giardino SwitchBot
-  const bP = iP >= 0 ? smussa(iP, calcBias(past[iP], oArpa)) : null;       // Pancani: tarato su Arpa
+  const bP = iP >= 0 ? smussa(iP, calcBias(past[iP], oArpa.series)) : null; // Pancani: tarato su Arpa
   // località senza centralina (es. Limonetto): interpolo per quota tra Limone e Pancani, ora per ora
   if (bL && bP && iL >= 0 && iP >= 0 && locs[iL].alt !== locs[iP].alt){
     locs.forEach((l,li) => { if (li === iL || li === iP) return;
@@ -437,6 +453,15 @@ function render(){
 
   const nk = nowKey();
   let ni = H.findIndex(h => h.t === nk); if (ni < 0) ni = 0;
+  // ANCORAGGIO: "incollo" l'ora corrente alla temperatura reale della centralina e sfumo nelle 6 ore successive
+  const an = anchor[biasKey(locs[cur])]; let ancorato = false;
+  if (an && an.temp != null && Date.now() - an.ts < 2*3600e3 && H[ni] && H[ni].temp != null){
+    const off = an.temp - H[ni].temp;
+    if (Math.abs(off) <= 8){
+      for (let i = ni; i < H.length; i++){ if (H[i].temp == null) continue; const dec = Math.max(0, 1 - (i - ni) / 6); H[i].temp = Math.round((H[i].temp + off * dec) * 10) / 10; }
+      ancorato = true;
+    }
+  }
   const h = H[ni] || {}, today = D[0] || {};
   const next3 = H.slice(ni, ni+3);
   const p3 = next3.reduce((s,x) => s + (x.pr||0), 0), s3 = next3.reduce((s,x) => s + (x.sn||0), 0);
@@ -454,6 +479,7 @@ function render(){
       '<div class="stat"><b>' + (today.snowLine != null ? today.snowLine : '–') + '</b><i>quota neve m (oggi)</i></div>' +
     '</div>' +
     (tarata ? (() => { const cc = corr[+(h.t ? h.t.slice(11,13) : nowKey().slice(11,13))] || 0; return '<div class="note" style="padding:8px 0 0">🎯 Temperatura tarata sulla centralina locale' + (cc ? ' (ora ' + (cc > 0 ? '−' : '+') + Math.abs(cc).toString().replace('.', ',') + '°C)' : '') + ', corretta ora per ora.</div>'; })() : '') +
+    (ancorato ? '<div class="note" style="padding:4px 0 0">📍 Temperatura attuale ancorata alla centralina reale, sfuma nei modelli nelle prossime ore.</div>' : '') +
     '</div>';
 
   html += '<h2>Prossimi giorni</h2>';
@@ -489,7 +515,7 @@ function render(){
   $('foot').innerHTML = 'Ogni valore è la mediana pesata dei modelli disponibili, con più peso a quelli ad alta risoluzione sulle Alpi (MeteoSvizzera, AROME, ItaliaMeteo). ' +
     'Il pallino indica quanto i modelli sono d\'accordo. Tocca un giorno per vedere le ore e il confronto tra i modelli.<br>' +
     'Modelli usati ora: ' + ms.map(x => esc(x.m.n)).join(', ') + '.<br>' +
-    'Versione app: 27 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
+    'Versione app: 28 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
 }
 
 
