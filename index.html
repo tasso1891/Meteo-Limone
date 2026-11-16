@@ -229,6 +229,8 @@ function msg(t){ $('msg').innerHTML = t ? '<div class="msg">' + esc(t) + '</div>
 // pochi dati non correggo nulla (non deve mai peggiorare).
 let bias = LS.get('ml.bias', {});   // chiave "lat,lon" -> array[24] di scarti °C per ora del giorno (modello meno reale)
 let anchor = LS.get('ml.anchor', {}); // chiave "lat,lon" -> {temp, ts}: ultima temperatura reale, per ancorare le prossime ore
+let dynw = LS.get('ml.dynw', {});     // id modello -> moltiplicatore di peso (pagella sugli ultimi giorni)
+function dynFor(id){ const v = dynw[id]; return (typeof v === 'number' && isFinite(v) && v > 0) ? v : 1; }
 function biasKey(l){ return l.lat.toFixed(3) + ',' + l.lon.toFixed(3); }
 const ZERO24 = () => new Array(24).fill(0);
 function biasFor(li){ const v = locs[li] ? bias[biasKey(locs[li])] : null; return (Array.isArray(v) && v.length === 24) ? v : ZERO24(); }
@@ -301,6 +303,32 @@ async function refreshBias(){
       nb[biasKey(l)] = bL.map((v,h) => Math.round(Math.max(-6, Math.min(6, v + (bP[h]-v)*f))*10)/10); });
   }
   bias = nb; LS.set('ml.bias', bias);
+
+  // ---- Pesi dinamici: "pagella" di ogni modello sugli ultimi giorni, confrontato con le centraline ----
+  const obsMap = o => { const m = {}; o.forEach(x => { m[x.k] = x.temp; }); return m; };
+  const scoreAt = (li, obs) => {   // errore medio (MAE) di ogni modello alla località li
+    if (li < 0 || !obs.length) return {};
+    const om = obsMap(obs), out = {};
+    raw.models.forEach(mm => {
+      const d = mm.locs[li]; if (!d || !d.time) return;
+      let s = 0, n = 0;
+      d.time.forEach((t,i) => { const k = t.slice(0,13); if (k >= ora) return; const ov = om[k], mv = d.temperature_2m ? d.temperature_2m[i] : null; if (ov != null && mv != null){ s += Math.abs(mv - ov); n++; } });
+      if (n >= 6) out[mm.id] = s / n;
+    });
+    return out;
+  };
+  const sL = scoreAt(iL, oGiardino), sP = scoreAt(iP, oArpa.series), maeById = {};
+  MODELS.forEach(m => { const v = [sL[m.id], sP[m.id]].filter(x => x != null); if (v.length) maeById[m.id] = v.reduce((s,x) => s+x, 0) / v.length; });
+  const maes = Object.values(maeById);
+  if (maes.length >= 3){
+    const ref = maes.slice().sort((a,b) => a-b)[Math.floor(maes.length/2)] || 1;   // errore mediano di riferimento
+    const nd = Object.assign({}, dynw);
+    MODELS.forEach(m => { const e = maeById[m.id]; if (e == null) return;
+      const grezzo = Math.max(0.5, Math.min(2, ref / Math.max(0.3, e)));   // meno errore -> peso più alto (limite 0.5–2×)
+      nd[m.id] = Math.round((dynFor(m.id)*0.6 + grezzo*0.4) * 100) / 100;   // smorzato: si muove piano
+    });
+    dynw = nd; LS.set('ml.dynw', dynw);
+  }
   render();
 }
 
@@ -324,6 +352,7 @@ const avg = a => { a = a.filter(v => v != null); return a.length ? a.reduce((s,v
 function build(models, li, corr){
   corr = corr || 0;   // correzione temperatura (°C) tarata sulla centralina locale
   const ms = models.map(x => ({m: MODELS.find(m => m.id === x.id), d: x.locs[li]})).filter(x => x.m && x.d);
+  ms.forEach(x => x.w = x.m.w * dynFor(x.m.id));   // peso effettivo = peso base × pagella recente del modello
   let times = [];
   ms.forEach(x => { if (x.d.time.length > times.length) times = x.d.time; });
   ms.forEach(x => {
@@ -335,7 +364,7 @@ function build(models, li, corr){
   // ma applicata SOLO quando è probabile l'inversione termica in conca: cielo sereno e poco
   // vento. Con nuvole o vento l'inversione non si forma e la correzione si annulla da sola.
   if (corr && corr.some(v => v)){
-    const comb = (v,i) => wmed(ms.map(x => ({v: x.a[v][i], w: x.m.w})).filter(o => o.v != null));
+    const comb = (v,i) => wmed(ms.map(x => ({v: x.a[v][i], w: x.w})).filter(o => o.v != null));
     const fac = times.map((t,i) => {
       const cc = comb('cloud_cover', i), ws = comb('wind_speed_10m', i);
       let f = 1;
@@ -346,7 +375,7 @@ function build(models, li, corr){
     ms.forEach(x => { x.a.temperature_2m = x.a.temperature_2m.map((v,i) => v == null ? null : v - (corr[+times[i].slice(11,13)] || 0) * fac[i]); });
   }
   const H = times.map((t,i) => {
-    const g = v => ms.map(x => ({v: x.a[v][i], w: x.m.w})).filter(o => o.v != null);
+    const g = v => ms.map(x => ({v: x.a[v][i], w: x.w})).filter(o => o.v != null);
     return {t, temp: wmed(g('temperature_2m')), pr: wmed(g('precipitation')), sn: wmed(g('snowfall')),
             ws: wmed(g('wind_speed_10m')), wg: wmed(g('wind_gusts_10m')), wd: wdir(g('wind_direction_10m')),
             cc: wmed(g('cloud_cover')), fz: wmed(g('freezing_level_height'))};
@@ -361,11 +390,11 @@ function build(models, li, corr){
       const sum = v => ii.reduce((s,i) => s + (x.a[v][i] || 0), 0);
       const mx = v => fin(Math.max(...ii.map(i => x.a[v][i]).filter(v => v != null)));
       const hasSn = ii.some(i => x.a.snowfall[i] != null);
-      return {m: x.m, tmin: Math.min(...T), tmax: Math.max(...T), pr: sum('precipitation'),
+      return {m: x.m, w: x.w, tmin: Math.min(...T), tmax: Math.max(...T), pr: sum('precipitation'),
               sn: hasSn ? sum('snowfall') : null, ws: mx('wind_speed_10m'), wg: mx('wind_gusts_10m')};
     }).filter(Boolean);
     const hh = H.filter(h => h.t.startsWith(d));
-    const g = k => per.filter(p => p[k] != null).map(p => ({v: p[k], w: p.m.w}));
+    const g = k => per.filter(p => p[k] != null).map(p => ({v: p[k], w: p.w}));
     let day;
     if (per.length){
       day = {tmin: wmed(g('tmin')), tmax: wmed(g('tmax')), pr: wmed(g('pr')), sn: wmed(g('sn')), ws: wmed(g('ws')), wg: wmed(g('wg'))};
@@ -426,6 +455,22 @@ function nowKey(){
 const relTxt = {alta:'Affidabilità alta', media:'Affidabilità media', bassa:'Affidabilità bassa'};
 // stato del cielo dalla nuvolosità (0-100%) del modello per l'ora attuale
 function cieloTxt(cc){ if (cc == null) return '–'; if (cc < 15) return 'Sereno'; if (cc < 40) return 'Poco nuv.'; if (cc < 75) return 'Nuvoloso'; return 'Coperto'; }
+// riassunto neve fresca attesa nei 7 giorni (totale, nevicata principale, intervallo tra i modelli)
+function neveHtml(D){
+  const tot = D.reduce((s,d) => s + (d.sn || 0), 0);
+  if (tot < 1) return '';   // niente neve in vista: non mostro nulla
+  let peak = null, pi = 0; D.forEach((d,i) => { if ((d.sn||0) >= 0.5 && (!peak || d.sn > peak.sn)){ peak = d; pi = i; } });
+  // intervallo onesto: somma per ogni modello che copre TUTTI i giorni
+  const full = ((D[D.length-1] || {}).per || []).map(p => p.m.id);
+  const sums = {};
+  D.forEach(d => (d.per || []).forEach(p => { if (full.indexOf(p.m.id) >= 0) sums[p.m.id] = (sums[p.m.id] || 0) + (p.sn || 0); }));
+  const vals = Object.values(sums); let range = '';
+  if (vals.length >= 2){ const mn = Math.min(...vals), mx = Math.max(...vals); if (mx - mn >= 2) range = ' (tra ' + nfmt(mn) + ' e ' + nfmt(mx) + ' cm)'; }
+  return '<div class="allerta" style="border-color:#7cc4ff">' +
+    '<div class="al-h">❄️ Neve prevista nei 7 giorni: ' + nfmt(tot) + ' cm' + range + '</div>' +
+    (peak ? '<div class="al-s">Nevicata principale: ' + dayName(peak.d, pi) + ' ' + dayNum(peak.d) + ' · ' + nfmt(peak.sn) + ' cm</div>' : '') +
+    '</div>';
+}
 // quanti modelli sono d'accordo su pioggia/neve: più onesto del solo numero
 function accordoHtml(d){
   const m = d.per ? d.per.length : 0; if (!m) return '';
@@ -482,6 +527,7 @@ function render(){
     (ancorato ? '<div class="note" style="padding:4px 0 0">📍 Temperatura attuale ancorata alla centralina reale, sfuma nei modelli nelle prossime ore.</div>' : '') +
     '</div>';
 
+  html += neveHtml(D);
   html += '<h2>Prossimi giorni</h2>';
   D.forEach((d,i) => {
     const night = false;
@@ -503,7 +549,7 @@ function render(){
       '</div>' + accordoHtml(d) +
       (d.snowLine != null ? '<div class="note">Quota neve stimata quando precipita: circa ' + d.snowLine + ' m</div>' : '') +
       (d.per.length ? '<table class="models"><tr><th>Modello</th><th>min/max</th><th>mm</th><th>neve</th><th>raff.</th></tr>' +
-        d.per.slice().sort((a,b) => b.m.w - a.m.w).map(p =>
+        d.per.slice().sort((a,b) => b.w - a.w).map(p =>
           '<tr><td>' + esc(p.m.n) + '</td><td>' + r0(p.tmin) + '/' + r0(p.tmax) + '°</td><td>' + nfmt(p.pr) + '</td><td>' + (p.sn == null ? '–' : nfmt(p.sn)) + '</td><td>' + r0(p.wg) + '</td></tr>').join('') +
         '<tr class="fin"><td>Previsione finale</td><td>' + r0(d.tmin) + '/' + r0(d.tmax) + '°</td><td>' + nfmt(d.pr) + '</td><td>' + nfmt(d.sn) + '</td><td>' + r0(d.wg) + '</td></tr></table>'
         : '<div class="note">Per questo giorno arrivano solo dati parziali dai modelli.</div>') +
@@ -515,7 +561,7 @@ function render(){
   $('foot').innerHTML = 'Ogni valore è la mediana pesata dei modelli disponibili, con più peso a quelli ad alta risoluzione sulle Alpi (MeteoSvizzera, AROME, ItaliaMeteo). ' +
     'Il pallino indica quanto i modelli sono d\'accordo. Tocca un giorno per vedere le ore e il confronto tra i modelli.<br>' +
     'Modelli usati ora: ' + ms.map(x => esc(x.m.n)).join(', ') + '.<br>' +
-    'Versione app: 28 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
+    'Versione app: 30 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
 }
 
 
@@ -681,6 +727,7 @@ function fcHtml(models, loc){
       '<div class="stat"><b style="font-size:17px">' + cieloTxt(h.cc) + '</b><i>cielo ora' + (h.cc != null ? ' (' + r0(h.cc) + '%)' : '') + '</i></div>' +
       '<div class="stat"><b>' + (today.snowLine != null ? today.snowLine : '–') + '</b><i>quota neve m</i></div>' +
     '</div></div>';
+  html += neveHtml(D);
   html += '<h2>Prossimi giorni</h2>';
   D.forEach((d,i) => {
     const ic = ico(d.pr||0, d.sn||0, d.cc, false, 0.5, 3), anySnow = (d.sn||0) >= 0.1;
@@ -700,7 +747,7 @@ function fcHtml(models, loc){
       '</div>' + accordoHtml(d) +
       (d.snowLine != null ? '<div class="note">Quota neve stimata quando precipita: circa ' + d.snowLine + ' m</div>' : '') +
       (d.per.length ? '<table class="models"><tr><th>Modello</th><th>min/max</th><th>mm</th><th>neve</th><th>raff.</th></tr>' +
-        d.per.slice().sort((a,b) => b.m.w - a.m.w).map(p =>
+        d.per.slice().sort((a,b) => b.w - a.w).map(p =>
           '<tr><td>' + esc(p.m.n) + '</td><td>' + r0(p.tmin) + '/' + r0(p.tmax) + '°</td><td>' + nfmt(p.pr) + '</td><td>' + (p.sn == null ? '–' : nfmt(p.sn)) + '</td><td>' + r0(p.wg) + '</td></tr>').join('') +
         '<tr class="fin"><td>Previsione finale</td><td>' + r0(d.tmin) + '/' + r0(d.tmax) + '°</td><td>' + nfmt(d.pr) + '</td><td>' + nfmt(d.sn) + '</td><td>' + r0(d.wg) + '</td></tr></table>'
         : '<div class="note">Per questo giorno arrivano solo dati parziali dai modelli.</div>') +
