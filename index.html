@@ -147,7 +147,7 @@ const MODELS = [
   {id:'icon_eu',                     n:'DWD ICON-EU',            w:1},
   {id:'gfs_seamless',                n:'NOAA GFS',               w:0.6}
 ];
-const VARS = ['temperature_2m','precipitation','snowfall','wind_speed_10m','wind_gusts_10m','wind_direction_10m','cloud_cover','freezing_level_height'];
+const VARS = ['temperature_2m','relative_humidity_2m','precipitation','snowfall','wind_speed_10m','wind_gusts_10m','wind_direction_10m','cloud_cover','freezing_level_height'];
 const DEF_LOCS = [
   {nome:'Limone',    lat:44.2016, lon:7.5764, alt:1171},   // quota del giardino (termometro SwitchBot)
   {nome:'Limonetto', lat:44.1706, lon:7.5640, alt:1294},
@@ -348,6 +348,22 @@ function wdir(a){ // direzione media (vettoriale)
 }
 const fin = v => Number.isFinite(v) ? v : null;
 const avg = a => { a = a.filter(v => v != null); return a.length ? a.reduce((s,v)=>s+v,0)/a.length : null; };
+// temperatura di bulbo umido (Stull 2011): è quella che conta per decidere neve o pioggia
+function wetBulb(T, rh){
+  if (T == null) return null;
+  if (rh == null) return T;
+  rh = Math.max(1, Math.min(100, rh));
+  return T*Math.atan(0.151977*Math.sqrt(rh+8.313659)) + Math.atan(T+rh) - Math.atan(rh-1.676331) + 0.00391838*Math.pow(rh,1.5)*Math.atan(0.023101*rh) - 4.686035;
+}
+// riclassifica un'ora: dato pioggia (mm), bulbo umido e temperatura aria, torna cm di neve (0 se pioggia)
+function neveDaBulbo(pr, Tw, Tair){
+  if (!(pr >= 0.05)) return 0;
+  if (Tw == null) return null;                              // dati insufficienti: lascio la neve del modello
+  if (Tair != null && Tair > 3.5) return 0;                // troppo caldo: pioggia comunque (paracadute)
+  if (Tw > 1.2) return 0;                                   // sopra ~1,2°C di bulbo umido: pioggia
+  const slr = Tw >= 0 ? 7 : Tw >= -3 ? 10 : Tw >= -8 ? 13 : 17;   // rapporto neve/acqua: più freddo = più soffice
+  return Math.round(pr * slr / 10 * 10) / 10;
+}
 
 function build(models, li, corr){
   corr = corr || 0;   // correzione temperatura (°C) tarata sulla centralina locale
@@ -380,6 +396,14 @@ function build(models, li, corr){
             ws: wmed(g('wind_speed_10m')), wg: wmed(g('wind_gusts_10m')), wd: wdir(g('wind_direction_10m')),
             cc: wmed(g('cloud_cover')), fz: wmed(g('freezing_level_height'))};
   });
+  // NEVE o PIOGGIA decisa localmente dalla temperatura TARATA + umidità (bulbo umido),
+  // invece di fidarsi del campo "neve" di ogni modello: più giusto per la quota di Limone.
+  H.forEach((h,i) => {
+    const rh = wmed(ms.map(x => ({v: x.a.relative_humidity_2m[i], w: x.w})).filter(o => o.v != null));
+    h.rh = rh;
+    const Tw = wetBulb(h.temp, rh), nv = neveDaBulbo(h.pr || 0, Tw, h.temp);
+    if (nv != null) h.sn = nv;   // se mancano i dati per decidere, lascio la neve del modello
+  });
   const oggi = nowKey().slice(0,10);
   const dates = [...new Set(times.map(t => t.slice(0,10)))].filter(d => d >= oggi);  // le ore passate restano in H, ma i giorni partono da oggi
   const D = dates.map(d => {
@@ -406,6 +430,7 @@ function build(models, li, corr){
     }
     const wet = hh.filter(h => (h.pr||0) >= 0.1 && h.fz != null);
     const fz = wet.length ? Math.min(...wet.map(h => h.fz)) : null;
+    day.sn = hh.reduce((s,h) => s + (h.sn || 0), 0);   // totale neve del giorno coerente con la riclassificazione oraria
     Object.assign(day, {d, per, hours: hh, cc: avg(hh.map(h => h.cc)), snowLine: fz != null ? Math.max(0, Math.round((fz - 300)/50)*50) : null});
     day.rel = reliab(per, day);
     return day;
@@ -564,7 +589,7 @@ function render(){
   $('foot').innerHTML = 'Ogni valore è la mediana pesata dei modelli disponibili, con più peso a quelli ad alta risoluzione sulle Alpi (MeteoSvizzera, AROME, ItaliaMeteo). ' +
     'Il pallino indica quanto i modelli sono d\'accordo. Tocca un giorno per vedere le ore e il confronto tra i modelli.<br>' +
     'Modelli usati ora: ' + ms.map(x => esc(x.m.n)).join(', ') + '.<br>' +
-    'Versione app: 33 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
+    'Versione app: 34 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
 }
 
 
