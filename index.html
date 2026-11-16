@@ -180,7 +180,7 @@ function url(vars, list){
     longitude: list.map(l=>l.lon).join(','),
     elevation: list.map(l=>l.alt).join(','),
     hourly: vars.join(','), models: MODELS.map(m=>m.id).join(','),
-    timezone: 'Europe/Rome', forecast_days: '7', wind_speed_unit: 'kmh'
+    timezone: 'Europe/Rome', forecast_days: '7', past_days: '2', wind_speed_unit: 'kmh'
   });
   return 'https://api.open-meteo.com/v1/forecast?' + p.toString();
 }
@@ -215,8 +215,62 @@ async function load(){
   else msg(raw ? 'Nessuna connessione: mostro le ultime previsioni salvate.' : 'Impossibile scaricare le previsioni. Controlla la connessione e riprova.');
   loading = false; $('bRef').classList.remove('spin');
   render();
+  refreshBias();   // dopo aver mostrato le previsioni, taro sulle centraline in sottofondo
 }
 function msg(t){ $('msg').innerHTML = t ? '<div class="msg">' + esc(t) + '</div>' : ''; }
+
+// ---------- Taratura sulla centralina locale: correzione della temperatura ----------
+// Confronto le temperature PASSATE dei modelli con quelle REALI misurate dalle
+// centraline (Arpa Pancani e SimoMarco a Limone) e tolgo lo scarto medio alle
+// previsioni future. Correggo solo la temperatura, con limiti prudenti: se ho
+// pochi dati non correggo nulla (non deve mai peggiorare).
+let bias = LS.get('ml.bias', {});   // chiave "lat,lon" -> scarto °C (modello meno reale)
+function biasKey(l){ return l.lat.toFixed(3) + ',' + l.lon.toFixed(3); }
+function biasFor(li){ const v = locs[li] ? bias[biasKey(locs[li])] : null; return (typeof v === 'number' && isFinite(v)) ? v : 0; }
+function nearIdx(lat, lon){ let bi = -1, bd = 9; locs.forEach((l,i) => { const d = Math.hypot(l.lat-lat, l.lon-lon); if (d < bd){ bd = d; bi = i; } }); return bd < 0.04 ? bi : -1; }  // ~4 km
+// "ora di orologio" italiana di un istante -> "2026-11-16T07" (indipendente dal fuso del telefono)
+function oraRoma(ms){ try{ return new Date(ms).toLocaleString('sv-SE', {timeZone:'Europe/Rome'}).slice(0,13).replace(' ','T'); }catch(e){ return null; } }
+async function obsArpa(code){
+  const j = await getJson('https://utility.arpa.piemonte.it/api_realtime/data_pie?station_code=' + code + '&page_size=500');
+  if (!j || !Array.isArray(j.data)) return [];
+  return j.data.filter(r => r.air_temperature != null).map(r => ({k: oraRoma(Date.parse(r.date)), temp: +r.air_temperature})).filter(o => o.k && isFinite(o.temp));
+}
+async function obsSimo(){
+  try{
+    const r = await fetchT('https://api.thingspeak.com/channels/' + SIMO_CH1.id + '/feeds.json?results=300&api_key=' + SIMO_CH1.key, 12000);
+    const j = await r.json();
+    return (j.feeds || []).map(f => { const o = simoConv(f); return o.temp == null ? null : {k: oraRoma(Date.parse(f.created_at)), temp: o.temp}; }).filter(o => o && o.k && isFinite(o.temp));
+  }catch(e){ return []; }
+}
+function calcBias(modelPast, obs){
+  if (!modelPast || !obs.length) return null;
+  const mh = {};                                        // ora italiana "YYYY-MM-DDTHH" -> temp modello
+  modelPast.forEach(h => { if (h.temp != null) mh[h.k] = h.temp; });
+  const diffs = [];
+  obs.forEach(o => { const m = mh[o.k]; if (m != null) diffs.push(m - o.temp); });
+  if (diffs.length < 8) return null;                    // pochi confronti in comune: non mi fido
+  diffs.sort((a,b) => a - b);
+  const med = diffs[Math.floor(diffs.length/2)];        // mediana: robusta a letture isolate sballate
+  return Math.max(-5, Math.min(5, med));                // per sicurezza limito la correzione a ±5 °C
+}
+async function refreshBias(){
+  if (!raw || !raw.models) return;
+  const ora = nowKey().slice(0,13);                     // ora attuale in ora italiana
+  const past = {};                                      // temp passate del modello combinato, per località
+  locs.forEach((l,li) => { const {H} = build(raw.models, li, 0); past[li] = H.filter(h => h.t.slice(0,13) < ora).map(h => ({k: h.t.slice(0,13), temp: h.temp})); });
+  const [oSimo, oArpa] = await Promise.all([obsSimo(), obsArpa('S4613')]);
+  const nb = Object.assign({}, bias);
+  const smussa = (li, grezzo) => { if (grezzo == null || !locs[li]) return null; const k = biasKey(locs[li]); const prev = (typeof nb[k] === 'number' && isFinite(nb[k])) ? nb[k] : grezzo; const v = Math.round((prev*0.5 + grezzo*0.5)*10)/10; nb[k] = v; return v; };
+  const iL = nearIdx(44.2016, 7.5764), iP = nearIdx(44.1617, 7.5908);   // Limone paese / Pancani
+  const bL = iL >= 0 ? smussa(iL, calcBias(past[iL], oSimo)) : null;
+  const bP = iP >= 0 ? smussa(iP, calcBias(past[iP], oArpa)) : null;
+  // località senza centralina (es. Limonetto): interpolo lo scarto per quota tra Limone e Pancani
+  if (bL != null && bP != null && iL >= 0 && iP >= 0 && locs[iL].alt !== locs[iP].alt){
+    locs.forEach((l,li) => { if (li === iL || li === iP) return; const f = (l.alt - locs[iL].alt) / (locs[iP].alt - locs[iL].alt); const g = Math.max(-5, Math.min(5, bL + (bP - bL) * f)); nb[biasKey(l)] = Math.round(g*10)/10; });
+  }
+  bias = nb; LS.set('ml.bias', bias);
+  render();
+}
 
 // ---------- calcoli ----------
 function wmed(a){ // mediana pesata
@@ -235,7 +289,8 @@ function wdir(a){ // direzione media (vettoriale)
 const fin = v => Number.isFinite(v) ? v : null;
 const avg = a => { a = a.filter(v => v != null); return a.length ? a.reduce((s,v)=>s+v,0)/a.length : null; };
 
-function build(models, li){
+function build(models, li, corr){
+  corr = corr || 0;   // correzione temperatura (°C) tarata sulla centralina locale
   const ms = models.map(x => ({m: MODELS.find(m => m.id === x.id), d: x.locs[li]})).filter(x => x.m && x.d);
   let times = [];
   ms.forEach(x => { if (x.d.time.length > times.length) times = x.d.time; });
@@ -243,6 +298,8 @@ function build(models, li){
     const idx = {}; x.d.time.forEach((t,i) => idx[t] = i);
     x.a = {};
     VARS.forEach(v => { const arr = x.d[v]; x.a[v] = times.map(t => { const i = idx[t]; return arr && i != null && arr[i] != null ? arr[i] : null; }); });
+    // applica la correzione alla temperatura di OGNI modello: così ore, giorni e tabella restano coerenti
+    if (corr) x.a.temperature_2m = x.a.temperature_2m.map(v => v == null ? null : v - corr);
   });
   const H = times.map((t,i) => {
     const g = v => ms.map(x => ({v: x.a[v][i], w: x.m.w})).filter(o => o.v != null);
@@ -250,7 +307,8 @@ function build(models, li){
             ws: wmed(g('wind_speed_10m')), wg: wmed(g('wind_gusts_10m')), wd: wdir(g('wind_direction_10m')),
             cc: wmed(g('cloud_cover')), fz: wmed(g('freezing_level_height'))};
   });
-  const dates = [...new Set(times.map(t => t.slice(0,10)))];
+  const oggi = nowKey().slice(0,10);
+  const dates = [...new Set(times.map(t => t.slice(0,10)))].filter(d => d >= oggi);  // le ore passate restano in H, ma i giorni partono da oggi
   const D = dates.map(d => {
     const ii = []; times.forEach((t,i) => { if (t.startsWith(d)) ii.push(i); });
     const per = ms.map(x => {
@@ -333,9 +391,10 @@ function render(){
   const M = $('main');
   if (!raw || !raw.models || !raw.models.length){ M.innerHTML = '<div class="empty">Nessuna previsione ancora scaricata.<br>Tocca ↻ per aggiornare.</div>'; $('upd').textContent = '—'; return; }
   if (raw.key !== locKey()) msg('Hai cambiato le località: tocca ↻ per aggiornare le previsioni.');
-  const {H, D, ms} = build(raw.models, cur);
+  const corr = biasFor(cur);
+  const {H, D, ms} = build(raw.models, cur, corr);
   const t = new Date(raw.ts);
-  $('upd').textContent = 'Aggiornato ' + t.toLocaleDateString('it-IT',{day:'numeric',month:'short'}) + ' ' + t.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'}) + ' · ' + ms.length + ' modelli';
+  $('upd').textContent = 'Aggiornato ' + t.toLocaleDateString('it-IT',{day:'numeric',month:'short'}) + ' ' + t.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'}) + ' · ' + ms.length + ' modelli' + (corr ? ' · temp. tarata' : '');
 
   const nk = nowKey();
   let ni = H.findIndex(h => h.t === nk); if (ni < 0) ni = 0;
@@ -353,7 +412,9 @@ function render(){
       '<div class="stat"><b class="s">' + nfmt(s3) + '</b><i>cm neve prossime 3 ore</i></div>' +
       '<div class="stat"><b>' + (h.fz != null ? r0(h.fz) : '–') + '</b><i>zero termico m</i></div>' +
       '<div class="stat"><b>' + (today.snowLine != null ? today.snowLine : '–') + '</b><i>quota neve m (oggi)</i></div>' +
-    '</div></div>';
+    '</div>' +
+    (corr ? '<div class="note" style="padding:8px 0 0">🎯 Temperatura corretta di ' + (corr > 0 ? '−' : '+') + Math.abs(corr).toString().replace('.', ',') + '°C in base alla centralina locale degli ultimi giorni.</div>' : '') +
+    '</div>';
 
   html += '<h2>Prossimi giorni</h2>';
   D.forEach((d,i) => {
@@ -388,7 +449,7 @@ function render(){
   $('foot').innerHTML = 'Ogni valore è la mediana pesata dei modelli disponibili, con più peso a quelli ad alta risoluzione sulle Alpi (MeteoSvizzera, AROME, ItaliaMeteo). ' +
     'Il pallino indica quanto i modelli sono d\'accordo. Tocca un giorno per vedere le ore e il confronto tra i modelli.<br>' +
     'Modelli usati ora: ' + ms.map(x => esc(x.m.n)).join(', ') + '.<br>' +
-    'Versione app: 18 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
+    'Versione app: 19 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
 }
 
 
