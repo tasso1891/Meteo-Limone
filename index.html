@@ -480,7 +480,7 @@ function render(){
   $('foot').innerHTML = 'Ogni valore è la mediana pesata dei modelli disponibili, con più peso a quelli ad alta risoluzione sulle Alpi (MeteoSvizzera, AROME, ItaliaMeteo). ' +
     'Il pallino indica quanto i modelli sono d\'accordo. Tocca un giorno per vedere le ore e il confronto tra i modelli.<br>' +
     'Modelli usati ora: ' + ms.map(x => esc(x.m.n)).join(', ') + '.<br>' +
-    'Versione app: 25 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
+    'Versione app: 26 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
 }
 
 
@@ -1138,6 +1138,8 @@ function renderLive(loadingRB){
     '<h2>Webcam</h2>' + CAMS.map(c =>
       '<div class="cam"><b>' + c.n + '<span></span></b><a href="https://riservabianca.it/info" target="_blank" rel="noopener"><img data-id="' + c.id + '" data-b="0" src="' + camSrc(c.id) + '" alt="' + c.n + '" onerror="camErr(this)" onload="camOk(this)"></a></div>').join('') +
     '<h2>Link utili</h2><div class="card links">' +
+      '<a href="https://www.snow-online.com/ski-resort/limone-piemonte/webcam/top-station-of-the-pancani-chair-lift.htm" target="_blank" rel="noopener">📷 Webcam arrivo Pancani (dal vivo) →</a>' +
+      '<a href="https://www.snow-online.com/webcams/ski-resort/limone-piemonte.html" target="_blank" rel="noopener">📷 Tutte le webcam di Limone →</a>' +
       '<a href="https://riservabianca.it/info" target="_blank" rel="noopener">❄️ Bollettino neve e webcam – Riserva Bianca</a>' +
       '<a href="https://www.arpa.piemonte.it/rischi_naturali/boll/bollettino_meteotestuale.pdf" target="_blank" rel="noopener">📄 Bollettino meteo Arpa Piemonte</a>' +
       '<a href="https://bollettini.aineva.it/bulletin/latest?region=IT-21" target="_blank" rel="noopener">⚠️ Bollettino valanghe (AINEVA)</a>' +
