@@ -43,7 +43,7 @@ header small{display:block;font-size:12px;color:var(--mut);font-weight:400;margi
 .dot.alta{background:var(--ok)}.dot.media{background:var(--warn)}.dot.bassa{background:var(--bad)}
 h2{font-size:12px;text-transform:uppercase;letter-spacing:.8px;color:var(--mut);margin:18px 18px 4px;font-weight:600}
 .day{margin:8px 16px;background:var(--card);border:1px solid var(--line);border-radius:16px;overflow:hidden}
-.dh{display:grid;grid-template-columns:70px 48px 1fr auto;align-items:center;gap:8px;padding:11px 12px;cursor:pointer}
+.dh{display:grid;grid-template-columns:70px 40px 1fr auto;align-items:center;gap:8px;padding:11px 12px;cursor:pointer}
 .dn b{display:block;font-size:15px}.dn span{font-size:12px;color:var(--mut);display:flex;align-items:center;gap:4px}
 .di{font-size:26px;text-align:center}
 .sf{font-size:.6em;letter-spacing:-.04em;white-space:nowrap;vertical-align:middle}  /* fiocchi multipli: leggibili e non sovrapposti */
@@ -454,9 +454,9 @@ function icoH(h){
   return ico(h.pr||0, h.sn||0, h.cc, night, 0.1, 1);
 }
 function ico(pr, sn, cc, night, lo, hi){
-  if (sn >= lo){   // neve: 1 fiocco debole, 2 medio, 3 forte (i multipli rimpiccioliti per stare nell'icona)
-    const n = sn >= lo*20 ? 3 : sn >= lo*6 ? 2 : 1;
-    return n === 1 ? '❄️' : '<span class="sf">' + '❄️'.repeat(n) + '</span>';
+  if (sn >= lo){   // neve: un solo fiocco, più grande quando nevica di più (non sborda mai sulle altre colonne)
+    const sz = sn >= lo*20 ? 1.35 : sn >= lo*6 ? 1.05 : 0.8;   // forte / media / debole
+    return '<span style="font-size:' + sz + 'em;display:inline-block">❄️</span>';
   }
   if (pr >= hi) return '🌧️';
   if (pr >= lo) return night ? '🌧️' : '🌦️';
@@ -590,7 +590,7 @@ function render(){
   $('foot').innerHTML = 'Ogni valore è la mediana pesata dei modelli disponibili, con più peso a quelli ad alta risoluzione sulle Alpi (MeteoSvizzera, AROME, ItaliaMeteo). ' +
     'Il pallino indica quanto i modelli sono d\'accordo. Tocca un giorno per vedere le ore e il confronto tra i modelli.<br>' +
     'Modelli usati ora: ' + ms.map(x => esc(x.m.n)).join(', ') + '.<br>' +
-    'Versione app: 34 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
+    'Versione app: 36 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
 }
 
 
