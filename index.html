@@ -606,7 +606,7 @@ function render(){
   $('foot').innerHTML = 'Ogni valore è la mediana pesata dei modelli disponibili, con più peso a quelli ad alta risoluzione sulle Alpi (MeteoSvizzera, AROME, ItaliaMeteo). ' +
     'Il pallino indica quanto i modelli sono d\'accordo. Tocca un giorno per vedere le ore e il confronto tra i modelli.<br>' +
     'Modelli usati ora: ' + ms.map(x => esc(x.m.n)).join(', ') + '.<br>' +
-    'Versione app: 40 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
+    'Versione app: 41 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
 }
 
 
@@ -865,12 +865,21 @@ let neveSuoloCache = null;
 function kmDist(a1,o1,a2,o2){ const R=6371, r=Math.PI/180, dLat=(a2-a1)*r, dLon=(o2-o1)*r; const x=Math.sin(dLat/2)**2 + Math.cos(a1*r)*Math.cos(a2*r)*Math.sin(dLon/2)**2; return 2*R*Math.asin(Math.sqrt(x)); }
 async function loadNeveSuolo(){
   if (neveSuoloCache) return neveSuoloCache;
-  let nj, aj;
-  try{ [nj, aj] = await Promise.all([getJson('https://utility.arpa.piemonte.it/api_realtime/pie_neve'), getJson('https://utility.arpa.piemonte.it/api_realtime/pie_anag')]); }catch(e){ return []; }
-  if (!Array.isArray(nj) || !Array.isArray(aj)) return [];
-  const coord = {}; aj.forEach(s => { if (s.lat != null && s.lng != null) coord[s.station_code] = {lat:+s.lat, lon:+s.lng, q:+s.quote, n:s.name}; });
-  const last = {}; nj.forEach(x => { if (x.validated_snow_height == null) return; const c = x.station_code; if (!last[c] || x.date > last[c].date) last[c] = {date:x.date, sn:+x.validated_snow_height}; });
-  const out = []; Object.keys(last).forEach(c => { const g = coord[c]; if (g) out.push({lat:g.lat, lon:g.lon, q:g.q, nome:g.n, sn:last[c].sn}); });
+  const out = [];
+  // --- Piemonte: Arpa (pie_neve altezze + pie_anag coordinate) ---
+  try{
+    const [nj, aj] = await Promise.all([getJson('https://utility.arpa.piemonte.it/api_realtime/pie_neve'), getJson('https://utility.arpa.piemonte.it/api_realtime/pie_anag')]);
+    if (Array.isArray(nj) && Array.isArray(aj)){
+      const coord = {}; aj.forEach(s => { if (s.lat != null && s.lng != null) coord[s.station_code] = {lat:+s.lat, lon:+s.lng, q:+s.quote, n:s.name}; });
+      const last = {}; nj.forEach(x => { if (x.validated_snow_height == null) return; const c = x.station_code; if (!last[c] || x.date > last[c].date) last[c] = {date:x.date, sn:+x.validated_snow_height}; });
+      Object.keys(last).forEach(c => { const g = coord[c]; if (g) out.push({reg:'Piemonte', lat:g.lat, lon:g.lon, q:g.q, nome:g.n, sn:last[c].sn}); });
+    }
+  }catch(e){}
+  // --- Valle d'Aosta: neve-vda.json (aggiornato 2 volte/giorno da GitHub Action che legge i bollettini nivometri VdA) ---
+  try{
+    const vj = await getJson('neve-vda.json?t=' + Math.floor(Date.now()/3.6e6));
+    if (vj && Array.isArray(vj.stazioni)) vj.stazioni.forEach(s => { if (s.lat != null && s.lon != null && s.neve != null) out.push({reg:"Valle d'Aosta", lat:+s.lat, lon:+s.lon, q:s.quota, nome:s.nome, sn:+s.neve}); });
+  }catch(e){}
   neveSuoloCache = out; return out;
 }
 let stazCache = null;
@@ -886,7 +895,7 @@ async function showStazioni(){
     const sn7 = D.reduce((a,d) => a + (d.sn||0), 0), sn3 = D.slice(0,3).reduce((a,d) => a + (d.sn||0), 0);
     let peak = null, pi = 0; D.forEach((d,k) => { if ((d.sn||0) >= 0.5 && (!peak || d.sn > peak.sn)){ peak = d; pi = k; } });
     let suolo = null;
-    if (s.reg === 'Piemonte' && neve.length){ let best = null, bd = 1e9; neve.forEach(st => { const d = kmDist(s.lat, s.lon, st.lat, st.lon); if (d < bd){ bd = d; best = st; } }); if (best && bd <= 25) suolo = {cm: best.sn, km: bd, q: best.q, nome: best.nome}; }
+    if (neve.length){ let best = null, bd = 1e9; neve.forEach(st => { if (st.reg !== s.reg) return; const d = kmDist(s.lat, s.lon, st.lat, st.lon); if (d < bd){ bd = d; best = st; } }); if (best && bd <= 25) suolo = {cm: best.sn, km: bd, q: best.q, nome: best.nome}; }
     return {s, sn7, sn3, peak, pi, suolo};
   }).sort((a,b) => b.sn7 - a.sn7);
   V.innerHTML = '<h2>Neve stazioni · Piemonte e Valle d\'Aosta</h2>' + rows.map(r => {
@@ -896,9 +905,9 @@ async function showStazioni(){
       '<div style="text-align:right;white-space:nowrap"><b style="color:' + col + ';font-size:20px">' + nfmt(r.sn7) + ' cm</b><div class="note" style="padding:0">prevista 7 gg</div></div></div>' +
       (r.suolo != null ? '<div class="note" style="padding:6px 0 0">🏔️ <b style="color:var(--txt)">Neve al suolo: ' + r.suolo.cm + ' cm</b> · staz. ' + esc(r.suolo.nome) + ' a ' + Math.round(r.suolo.km) + ' km (' + r0(r.suolo.q) + ' m)</div>' : '') +
       (r.sn3 >= 0.5 ? '<div class="note" style="padding:4px 0 0">❄️ Neve prevista prossimi 3 giorni: ' + nfmt(r.sn3) + ' cm' + (r.peak ? ' · max ' + dayName(r.peak.d, r.pi) + ' ' + dayNum(r.peak.d) : '') + '</div>' : '<div class="note" style="padding:4px 0 0">Nessuna neve prevista nei prossimi giorni</div>') +
-      '<div class="links"><a href="' + r.s.url + '" target="_blank" rel="noopener">' + (r.s.reg === "Valle d'Aosta" ? '🏔️ Neve al suolo · bollettino VdA (PDF)' : 'Sito / bollettino ' + esc(r.s.nome.split(' · ')[0])) + ' →</a></div></div>';
+      '<div class="links"><a href="' + r.s.url + '" target="_blank" rel="noopener">' + (r.s.reg === "Valle d'Aosta" ? 'Bollettino nivometri VdA (PDF)' : 'Sito / bollettino ' + esc(r.s.nome.split(' · ')[0])) + ' →</a></div></div>';
   }).join('') +
-  '<div class="note" style="padding:10px 16px 20px">🏔️ <b>Neve al suolo</b> = dato misurato: per il <b>Piemonte</b> è mostrato in app (stazione Arpa più vicina); per la <b>Valle d\'Aosta</b> tocca il link, che apre il bollettino nivometri del Centro Funzionale VdA con le altezze neve misurate. ❄️ <b>Neve prevista</b> = dai modelli meteo.</div>';
+  '<div class="note" style="padding:10px 16px 20px">🏔️ <b>Neve al suolo</b> = dato misurato dalla stazione più vicina: <b>Piemonte</b> da Arpa, <b>Valle d\'Aosta</b> dai bollettini nivometri del Centro Funzionale VdA (aggiornati 2 volte al giorno). Il link apre il bollettino completo con i grafici. ❄️ <b>Neve prevista</b> = dai modelli meteo.</div>';
 }
 let searchSel = null;
 function showSearch(){
