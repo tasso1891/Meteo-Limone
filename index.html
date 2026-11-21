@@ -484,6 +484,20 @@ function nowKey(){
 const relTxt = {alta:'Affidabilità alta', media:'Affidabilità media', bassa:'Affidabilità bassa'};
 // stato del cielo dalla nuvolosità (0-100%) del modello per l'ora attuale
 function cieloTxt(cc){ if (cc == null) return '–'; if (cc < 15) return 'Sereno'; if (cc < 40) return 'Poco nuv.'; if (cc < 75) return 'Nuvoloso'; return 'Coperto'; }
+// avviso vento forte: raffica massima prevista nelle prossime 48 ore
+function ventoHtml(H, ni){
+  let mx = -1, mt = null;
+  for (let i = ni; i < Math.min(ni + 48, H.length); i++){ const g = H[i].wg; if (g != null && g > mx){ mx = g; mt = H[i].t; } }
+  if (mx < 50) return '';   // sotto i 50 km/h non avviso
+  const lvl = mx >= 90 ? ['Vento molto forte', '#ff2a2a'] : mx >= 70 ? ['Vento forte', '#ff9b00'] : ['Vento teso', '#ffd34e'];
+  let quando = '';
+  if (mt){ const d = mt.slice(0,10), oggi = nowKey().slice(0,10), dt = new Date(d + 'T12:00:00');
+    const g = d === oggi ? 'oggi' : (new Date(oggi + 'T12:00:00').getTime() + 864e5 === dt.getTime() ? 'domani' : GIORNI[dt.getDay()]);
+    quando = g + ' verso le ' + mt.slice(11,13); }
+  return '<div class="allerta" style="border-color:' + lvl[1] + '">' +
+    '<div class="al-h">💨 ' + lvl[0] + '</div>' +
+    '<div class="al-s">Raffiche fino a ' + r0(mx) + ' km/h' + (quando ? ' · ' + quando : '') + ' (prossime 48 h)</div></div>';
+}
 // riassunto neve fresca attesa nei 7 giorni (totale, nevicata principale, intervallo tra i modelli)
 function neveHtml(D){
   const tot = D.reduce((s,d) => s + (d.sn || 0), 0);
@@ -556,6 +570,7 @@ function render(){
     (ancorato ? '<div class="note" style="padding:4px 0 0">📍 Temperatura attuale ancorata alla centralina reale, sfuma nei modelli nelle prossime ore.</div>' : '') +
     '</div>';
 
+  html += ventoHtml(H, ni);
   html += neveHtml(D);
   html += '<h2>Prossimi giorni</h2>';
   D.forEach((d,i) => {
