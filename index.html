@@ -606,7 +606,7 @@ function render(){
   $('foot').innerHTML = 'Ogni valore è la mediana pesata dei modelli disponibili, con più peso a quelli ad alta risoluzione sulle Alpi (MeteoSvizzera, AROME, ItaliaMeteo). ' +
     'Il pallino indica quanto i modelli sono d\'accordo. Tocca un giorno per vedere le ore e il confronto tra i modelli.<br>' +
     'Modelli usati ora: ' + ms.map(x => esc(x.m.n)).join(', ') + '.<br>' +
-    'Versione app: 39 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
+    'Versione app: 40 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
 }
 
 
@@ -837,12 +837,12 @@ const RESORTS = [
   {nome:'Alagna · Monterosa',      reg:'Piemonte', lat:45.8600, lon:7.9400, alt:1900, url:'https://www.monterosa-ski.com'},
   {nome:'Bielmonte · Oropa',       reg:'Piemonte', lat:45.6500, lon:8.1000, alt:1500, url:'https://www.bielmonte.it'},
   {nome:'Prali',                   reg:'Piemonte', lat:44.8900, lon:7.0500, alt:1550, url:'https://www.seggiovieprali.it'},
-  {nome:'Courmayeur',              reg:"Valle d'Aosta", lat:45.8000, lon:6.9500, alt:1700, url:'https://www.courmayeur-montblanc.com'},
-  {nome:'La Thuile',               reg:"Valle d'Aosta", lat:45.6800, lon:6.9500, alt:1800, url:'https://www.lathuile.it'},
-  {nome:'Cervinia · Breuil',       reg:"Valle d'Aosta", lat:45.9340, lon:7.6300, alt:2050, url:'https://www.cervino.it'},
-  {nome:'Monterosa · Champoluc',   reg:"Valle d'Aosta", lat:45.8300, lon:7.7300, alt:1800, url:'https://www.monterosa-ski.com'},
-  {nome:'Pila',                    reg:"Valle d'Aosta", lat:45.7200, lon:7.3100, alt:1800, url:'https://www.pila.it'},
-  {nome:'Cogne',                   reg:"Valle d'Aosta", lat:45.6100, lon:7.3600, alt:1600, url:'https://www.cogneturismo.it'}
+  {nome:'Courmayeur',              reg:"Valle d'Aosta", lat:45.8000, lon:6.9500, alt:1700, url:'https://cf.regione.vda.it/allegati/bollettini/dettaglio/nivometri_Zona_D.pdf'},
+  {nome:'La Thuile',               reg:"Valle d'Aosta", lat:45.6800, lon:6.9500, alt:1800, url:'https://cf.regione.vda.it/allegati/bollettini/dettaglio/nivometri_Zona_D.pdf'},
+  {nome:'Cervinia · Breuil',       reg:"Valle d'Aosta", lat:45.9340, lon:7.6300, alt:2050, url:'https://cf.regione.vda.it/allegati/bollettini/dettaglio/nivometri_Zona_D.pdf'},
+  {nome:'Monterosa · Champoluc',   reg:"Valle d'Aosta", lat:45.8300, lon:7.7300, alt:1800, url:'https://cf.regione.vda.it/allegati/bollettini/dettaglio/nivometri_Zona_B.pdf'},
+  {nome:'Pila',                    reg:"Valle d'Aosta", lat:45.7200, lon:7.3100, alt:1800, url:'https://cf.regione.vda.it/allegati/bollettini/dettaglio/nivometri_Zona_A.pdf'},
+  {nome:'Cogne',                   reg:"Valle d'Aosta", lat:45.6100, lon:7.3600, alt:1600, url:'https://cf.regione.vda.it/allegati/bollettini/dettaglio/nivometri_Zona_C.pdf'}
 ];
 async function fetchResorts(){
   const VS = ['temperature_2m','relative_humidity_2m','precipitation','snowfall'];   // leggero: bastano per neve/tipo
@@ -896,9 +896,9 @@ async function showStazioni(){
       '<div style="text-align:right;white-space:nowrap"><b style="color:' + col + ';font-size:20px">' + nfmt(r.sn7) + ' cm</b><div class="note" style="padding:0">prevista 7 gg</div></div></div>' +
       (r.suolo != null ? '<div class="note" style="padding:6px 0 0">🏔️ <b style="color:var(--txt)">Neve al suolo: ' + r.suolo.cm + ' cm</b> · staz. ' + esc(r.suolo.nome) + ' a ' + Math.round(r.suolo.km) + ' km (' + r0(r.suolo.q) + ' m)</div>' : '') +
       (r.sn3 >= 0.5 ? '<div class="note" style="padding:4px 0 0">❄️ Neve prevista prossimi 3 giorni: ' + nfmt(r.sn3) + ' cm' + (r.peak ? ' · max ' + dayName(r.peak.d, r.pi) + ' ' + dayNum(r.peak.d) : '') + '</div>' : '<div class="note" style="padding:4px 0 0">Nessuna neve prevista nei prossimi giorni</div>') +
-      '<div class="links"><a href="' + r.s.url + '" target="_blank" rel="noopener">Sito / bollettino ' + esc(r.s.nome.split(' · ')[0]) + ' →</a></div></div>';
+      '<div class="links"><a href="' + r.s.url + '" target="_blank" rel="noopener">' + (r.s.reg === "Valle d'Aosta" ? '🏔️ Neve al suolo · bollettino VdA (PDF)' : 'Sito / bollettino ' + esc(r.s.nome.split(' · ')[0])) + ' →</a></div></div>';
   }).join('') +
-  '<div class="note" style="padding:10px 16px 20px">🏔️ <b>Neve al suolo</b> = dato misurato dalla stazione Arpa più vicina (solo Piemonte; la Valle d\'Aosta non è coperta, usa il link). ❄️ <b>Neve prevista</b> = dai modelli meteo. Per impianti aperti, tocca il link della stazione.</div>';
+  '<div class="note" style="padding:10px 16px 20px">🏔️ <b>Neve al suolo</b> = dato misurato: per il <b>Piemonte</b> è mostrato in app (stazione Arpa più vicina); per la <b>Valle d\'Aosta</b> tocca il link, che apre il bollettino nivometri del Centro Funzionale VdA con le altezze neve misurate. ❄️ <b>Neve prevista</b> = dai modelli meteo.</div>';
 }
 let searchSel = null;
 function showSearch(){
