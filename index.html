@@ -81,7 +81,7 @@ input{width:100%;background:rgba(0,0,0,.25);border:1px solid var(--line);color:v
 .acts{display:flex;gap:8px;justify-content:space-between;margin-top:6px}
 .empty{text-align:center;color:var(--mut);padding:40px 16px}
 .tabs{display:flex;margin:4px 16px 2px;background:var(--card);border:1px solid var(--line);border-radius:13px;padding:3px}
-.tabs button{flex:1;border:0;background:none;color:var(--mut);padding:8px;border-radius:10px;font-weight:600;font-size:14px}
+.tabs button{flex:1;border:0;background:none;color:var(--mut);padding:8px 4px;border-radius:10px;font-weight:600;font-size:13px;white-space:nowrap}
 .tabs button.on{background:rgba(255,255,255,.15);color:var(--txt)}
 .cam{margin:10px 16px}
 .cam b{display:flex;justify-content:space-between;font-size:14px;margin:0 2px 6px}
@@ -123,7 +123,7 @@ input{width:100%;background:rgba(0,0,0,.25);border:1px solid var(--line);color:v
 <div id="allerta"></div>
 <div id="valanghe"></div>
 <div id="incendi"></div>
-<nav class="tabs" id="tabs"><button data-v="prev" class="on">Previsioni</button><button data-v="live">In diretta</button><button data-v="search">Cerca</button></nav>
+<nav class="tabs" id="tabs"><button data-v="prev" class="on">Previsioni</button><button data-v="live">In diretta</button><button data-v="search">Cerca</button><button data-v="staz">Stazioni</button></nav>
 <div id="vPrev">
 <nav class="locs" id="locs"></nav>
 <div id="msg"></div>
@@ -132,6 +132,7 @@ input{width:100%;background:rgba(0,0,0,.25);border:1px solid var(--line);color:v
 </div>
 <div id="vLive" hidden></div>
 <div id="vSearch" hidden></div>
+<div id="vStaz" hidden></div>
 <dialog id="dlg"></dialog>
 
 <script>
@@ -605,7 +606,7 @@ function render(){
   $('foot').innerHTML = 'Ogni valore è la mediana pesata dei modelli disponibili, con più peso a quelli ad alta risoluzione sulle Alpi (MeteoSvizzera, AROME, ItaliaMeteo). ' +
     'Il pallino indica quanto i modelli sono d\'accordo. Tocca un giorno per vedere le ore e il confronto tra i modelli.<br>' +
     'Modelli usati ora: ' + ms.map(x => esc(x.m.n)).join(', ') + '.<br>' +
-    'Versione app: 36 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
+    'Versione app: 38 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
 }
 
 
@@ -821,6 +822,66 @@ async function nearestArpa(loc){
     '<b style="display:flex;justify-content:space-between;margin-bottom:4px">' + esc(best.name) + '<span style="color:var(--mut);font-weight:400">' + Math.round(bd) + ' km · ' + r0(best.quote) + ' m</span></b>' +
     (vals || '<div class="note" style="padding:0">Dati non disponibili ora.</div>') +
     '<div class="links"><a href="https://www.arpa.piemonte.it/rischi_naturali/snippets_arpa_graphs/dettaglio_stazione/?id=' + id + '&param=termo" target="_blank" rel="noopener">📈 Grafici Arpa della stazione →</a></div></div>';
+}
+// ---------- Stazioni sciistiche: neve fresca prevista (Piemonte e Valle d'Aosta) ----------
+const RESORTS = [
+  {nome:'Limone · Riserva Bianca', reg:'Piemonte', lat:44.1706, lon:7.5640, alt:1400, url:'https://riservabianca.it/info'},
+  {nome:'Prato Nevoso',            reg:'Piemonte', lat:44.2460, lon:7.7700, alt:1500, url:'https://www.pratonevoso.com'},
+  {nome:'Artesina',                reg:'Piemonte', lat:44.2600, lon:7.7400, alt:1550, url:'https://www.mondole.it'},
+  {nome:'Mondolè · Frabosa',       reg:'Piemonte', lat:44.2850, lon:7.7800, alt:1500, url:'https://www.mondole.it'},
+  {nome:'Bardonecchia',            reg:'Piemonte', lat:45.0780, lon:6.7000, alt:1600, url:'https://www.bardonecchiaski.com'},
+  {nome:'Sestriere · Vialattea',   reg:'Piemonte', lat:44.9570, lon:6.8780, alt:2035, url:'https://www.vialattea.it'},
+  {nome:"Sauze d'Oulx",            reg:'Piemonte', lat:45.0300, lon:6.8600, alt:1550, url:'https://www.vialattea.it'},
+  {nome:'Sansicario',              reg:'Piemonte', lat:44.9600, lon:6.8000, alt:1700, url:'https://www.vialattea.it'},
+  {nome:'Pragelato',               reg:'Piemonte', lat:44.9400, lon:6.9400, alt:1600, url:'https://www.vialattea.it'},
+  {nome:'Alagna · Monterosa',      reg:'Piemonte', lat:45.8600, lon:7.9400, alt:1900, url:'https://www.monterosa-ski.com'},
+  {nome:'Bielmonte · Oropa',       reg:'Piemonte', lat:45.6500, lon:8.1000, alt:1500, url:'https://www.bielmonte.it'},
+  {nome:'Prali',                   reg:'Piemonte', lat:44.8900, lon:7.0500, alt:1550, url:'https://www.seggiovieprali.it'},
+  {nome:'Courmayeur',              reg:"Valle d'Aosta", lat:45.8000, lon:6.9500, alt:1700, url:'https://www.courmayeur-montblanc.com'},
+  {nome:'La Thuile',               reg:"Valle d'Aosta", lat:45.6800, lon:6.9500, alt:1800, url:'https://www.lathuile.it'},
+  {nome:'Cervinia · Breuil',       reg:"Valle d'Aosta", lat:45.9340, lon:7.6300, alt:2050, url:'https://www.cervino.it'},
+  {nome:'Monterosa · Champoluc',   reg:"Valle d'Aosta", lat:45.8300, lon:7.7300, alt:1800, url:'https://www.monterosa-ski.com'},
+  {nome:'Pila',                    reg:"Valle d'Aosta", lat:45.7200, lon:7.3100, alt:1800, url:'https://www.pila.it'},
+  {nome:'Cogne',                   reg:"Valle d'Aosta", lat:45.6100, lon:7.3600, alt:1600, url:'https://www.cogneturismo.it'}
+];
+async function fetchResorts(){
+  const VS = ['temperature_2m','relative_humidity_2m','precipitation','snowfall'];   // leggero: bastano per neve/tipo
+  const p = new URLSearchParams({
+    latitude: RESORTS.map(l=>l.lat).join(','), longitude: RESORTS.map(l=>l.lon).join(','), elevation: RESORTS.map(l=>l.alt).join(','),
+    hourly: VS.join(','), models: MODELS.map(m=>m.id).join(','), timezone:'Europe/Rome', forecast_days:'7', wind_speed_unit:'kmh'
+  });
+  let r = await fetchT('https://api.open-meteo.com/v1/forecast?' + p.toString(), 20000);
+  if (!r.ok) throw new Error('meteo ' + r.status);
+  let j = await r.json(); if (j && j.error) throw new Error(j.reason); if (!Array.isArray(j)) j = [j];
+  const ok = [];
+  MODELS.forEach(m => {
+    const ld = j.map(x => { const h = x.hourly || {}, o = {time: h.time || []}; VS.forEach(v => { o[v] = (h[v + '_' + m.id] ?? h[v]) ?? null; }); return o; });
+    if (ld.length === RESORTS.length && ld[0].time.length && ld[0].temperature_2m && ld[0].temperature_2m.some(v => v != null)) ok.push({id: m.id, locs: ld});
+  });
+  return ok;
+}
+let stazCache = null;
+async function showStazioni(){
+  const V = $('vStaz');
+  if (!V.innerHTML) V.innerHTML = '<div class="note" style="padding:20px 16px">Calcolo la neve prevista per le stazioni…</div>';
+  let models = stazCache;
+  if (!models){ try{ models = await fetchResorts(); stazCache = models; }catch(e){ models = []; } }
+  if (!models.length){ V.innerHTML = '<div class="empty">Impossibile scaricare le previsioni delle stazioni.<br>Riprova tra poco.</div>'; return; }
+  const rows = RESORTS.map((s,i) => {
+    const {D} = build(models, i, 0);
+    const sn7 = D.reduce((a,d) => a + (d.sn||0), 0), sn3 = D.slice(0,3).reduce((a,d) => a + (d.sn||0), 0);
+    let peak = null, pi = 0; D.forEach((d,k) => { if ((d.sn||0) >= 0.5 && (!peak || d.sn > peak.sn)){ peak = d; pi = k; } });
+    return {s, sn7, sn3, peak, pi};
+  }).sort((a,b) => b.sn7 - a.sn7);
+  V.innerHTML = '<h2>Neve prevista · Piemonte e Valle d\'Aosta</h2>' + rows.map(r => {
+    const col = r.sn7 >= 30 ? '#7cc4ff' : r.sn7 >= 5 ? '#cfe3f7' : 'var(--mut)';
+    return '<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px">' +
+      '<div style="min-width:0"><b>' + esc(r.s.nome) + '</b><div class="note" style="padding:2px 0 0">' + esc(r.s.reg) + ' · ' + r.s.alt + ' m</div></div>' +
+      '<div style="text-align:right;white-space:nowrap"><b style="color:' + col + ';font-size:20px">' + nfmt(r.sn7) + ' cm</b><div class="note" style="padding:0">7 giorni</div></div></div>' +
+      (r.sn3 >= 0.5 ? '<div class="note" style="padding:6px 0 0">❄️ Prossimi 3 giorni: ' + nfmt(r.sn3) + ' cm' + (r.peak ? ' · max ' + dayName(r.peak.d, r.pi) + ' ' + dayNum(r.peak.d) : '') + '</div>' : '<div class="note" style="padding:6px 0 0">Nessuna neve nei prossimi giorni</div>') +
+      '<div class="links"><a href="' + r.s.url + '" target="_blank" rel="noopener">Sito / bollettino ' + esc(r.s.nome.split(' · ')[0]) + ' →</a></div></div>';
+  }).join('') +
+  '<div class="note" style="padding:10px 16px 20px">Neve fresca <b>prevista</b> (modelli combinati) alla quota indicata di ogni stazione, ordinata da chi ne riceve di più. Per la neve al suolo e gli impianti aperti, tocca il link della stazione.</div>';
 }
 let searchSel = null;
 function showSearch(){
@@ -1293,10 +1354,11 @@ $('tabs').addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return;
   const v = b.dataset.v; liveOn = v === 'live';
   [...$('tabs').children].forEach(x => x.classList.toggle('on', x === b));
-  $('vPrev').hidden = v !== 'prev'; $('vLive').hidden = v !== 'live'; $('vSearch').hidden = v !== 'search';
+  $('vPrev').hidden = v !== 'prev'; $('vLive').hidden = v !== 'live'; $('vSearch').hidden = v !== 'search'; $('vStaz').hidden = v !== 'staz';
   if (v === 'live') showLive();
   else { stopRadar(); if (rmap){ try{ rmap.remove(); }catch(e){} rmap = null; } $('vLive').innerHTML = ''; } // chiude video e radar quando esci da In diretta
   if (v === 'search') showSearch();
+  if (v === 'staz') showStazioni();
 });
 
 $('locs').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; cur = +b.dataset.i; LS.set('ml.cur', cur); render(); });
