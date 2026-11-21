@@ -1,0 +1,42 @@
+name: Neve Valle d'Aosta
+
+# Legge i bollettini nivometrici della VdA e aggiorna neve-vda.json nel repo.
+on:
+  schedule:
+    - cron: "10 6 * * *"    # 07:10 ora italiana (inverno)
+    - cron: "10 14 * * *"   # 15:10 ora italiana (inverno)
+  workflow_dispatch:         # pulsante "Run workflow" manuale
+
+permissions:
+  contents: write
+
+jobs:
+  aggiorna:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installa dipendenze
+        run: pip install pdfplumber pypdf
+
+      - name: Self-test parser
+        run: python scripts/parse_vda.py --self-test
+
+      - name: Genera neve-vda.json
+        run: python scripts/parse_vda.py
+
+      - name: Commit se cambiato
+        run: |
+          git config user.name  "neve-vda-bot"
+          git config user.email "actions@users.noreply.github.com"
+          if ! git diff --quiet -- neve-vda.json; then
+            git add neve-vda.json
+            git commit -m "Aggiorna neve VdA [skip ci]"
+            git push
+          else
+            echo "Nessuna variazione."
+          fi
