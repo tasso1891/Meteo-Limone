@@ -1,5 +1,5 @@
 {
- "aggiornato": "2026-11-21T21:22:14Z",
+ "aggiornato": "2026-11-22T07:13:51Z",
  "fonte": "Centro Funzionale Valle d'Aosta - bollettini nivometrici",
  "stazioni": [
   {
@@ -7,112 +7,112 @@
    "quota": 2080,
    "lat": 45.874,
    "lon": 7.71923,
-   "neve": 17.0
+   "neve": 23.0
   },
   {
    "nome": "Bionaz - Place Moulin",
    "quota": 1979,
    "lat": 45.8997,
    "lon": 7.49137,
-   "neve": 48.0
+   "neve": 50.0
   },
   {
    "nome": "Chamois - Lac de Lou",
    "quota": 2020,
    "lat": 45.8446,
    "lon": 7.62275,
-   "neve": 15.0
+   "neve": 16.0
   },
   {
    "nome": "Champorcher - Rifugio Dondena",
    "quota": 2181,
    "lat": 45.6123,
    "lon": 7.55184,
-   "neve": 5.0
+   "neve": 15.0
   },
   {
    "nome": "Cogne - Lillaz",
    "quota": 1613,
    "lat": 45.5951,
    "lon": 7.39184,
-   "neve": 30.0
+   "neve": 33.0
   },
   {
    "nome": "Courmayeur - Dolonne",
    "quota": 1200,
    "lat": 45.7945,
    "lon": 6.96642,
-   "neve": 1.0
+   "neve": 12.0
   },
   {
    "nome": "Courmayeur - Ferrachet",
    "quota": 2290,
    "lat": 45.8668,
    "lon": 7.02754,
-   "neve": 98.0
+   "neve": 101.0
   },
   {
    "nome": "Courmayeur - Mont de la Saxe",
    "quota": 2076,
    "lat": 45.817,
    "lon": 6.98204,
-   "neve": 48.0
+   "neve": 57.0
   },
   {
    "nome": "Fénis - Lavodilec",
    "quota": 2250,
    "lat": 45.6448,
    "lon": 7.48514,
-   "neve": 37.0
+   "neve": 34.0
   },
   {
    "nome": "La Thuile - La Grande Tête",
    "quota": 2430,
    "lat": 45.6837,
    "lon": 6.91591,
-   "neve": 57.0
+   "neve": 70.0
   },
   {
    "nome": "La Thuile - Villaret",
    "quota": 1488,
    "lat": 45.7095,
    "lon": 6.95609,
-   "neve": 4.0
+   "neve": 13.0
   },
   {
    "nome": "Morgex - Lavancher",
    "quota": 2842,
    "lat": 45.7952,
    "lon": 7.02014,
-   "neve": 143.0
+   "neve": 147.0
   },
   {
    "nome": "Ollomont - By",
    "quota": 2017,
    "lat": 45.8814,
    "lon": 7.30066,
-   "neve": 83.0
+   "neve": 88.0
   },
   {
    "nome": "Valgrisenche - Menthieu",
    "quota": 1859,
    "lat": 45.6137,
    "lon": 7.0525,
-   "neve": 46.0
+   "neve": 53.0
   },
   {
    "nome": "Valsavarenche - Orvieille",
    "quota": 2170,
    "lat": 45.5799,
    "lon": 7.19196,
-   "neve": 80.0
+   "neve": 84.0
   },
   {
    "nome": "Valsavarenche - Pont",
    "quota": 1951,
    "lat": 45.5268,
    "lon": 7.20093,
-   "neve": 39.0
+   "neve": 45.0
   },
   {
    "nome": "Valtournenche - Breuil Cervinia",
@@ -126,21 +126,21 @@
    "quota": 2566,
    "lat": 45.9295,
    "lon": 7.60298,
-   "neve": 127.0
+   "neve": 124.0
   },
   {
    "nome": "Valtournenche - Lago Goillet",
    "quota": 2541,
    "lat": 45.9313,
    "lon": 7.66271,
-   "neve": 71.0
+   "neve": 75.0
   },
   {
    "nome": "Valtournenche - Maen",
    "quota": 1310,
    "lat": 45.8626,
    "lon": 7.61112,
-   "neve": 1.0
+   "neve": 7.0
   }
  ]
 }
