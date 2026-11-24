@@ -504,14 +504,9 @@ function neveHtml(D){
   const tot = D.reduce((s,d) => s + (d.sn || 0), 0);
   if (tot < 1) return '';   // niente neve in vista: non mostro nulla
   let peak = null, pi = 0; D.forEach((d,i) => { if ((d.sn||0) >= 0.5 && (!peak || d.sn > peak.sn)){ peak = d; pi = i; } });
-  // intervallo onesto: somma per ogni modello che copre TUTTI i giorni
-  const full = ((D[D.length-1] || {}).per || []).map(p => p.m.id);
-  const sums = {};
-  D.forEach(d => (d.per || []).forEach(p => { if (full.indexOf(p.m.id) >= 0) sums[p.m.id] = (sums[p.m.id] || 0) + (p.sn || 0); }));
-  const vals = Object.values(sums); let range = '';
-  if (vals.length >= 2){ const mn = Math.min(...vals), mx = Math.max(...vals); if (mx - mn >= 2) range = ' (tra ' + nfmt(mn) + ' e ' + nfmt(mx) + ' cm)'; }
+  // stima unica: totale combinato (per ogni giorno usa i modelli migliori disponibili)
   return '<div class="allerta" style="border-color:#7cc4ff">' +
-    '<div class="al-h">❄️ Neve prevista nei 7 giorni: ' + nfmt(tot) + ' cm' + range + '</div>' +
+    '<div class="al-h">❄️ Neve prevista nei 7 giorni: ~' + nfmt(tot) + ' cm</div>' +
     (peak ? '<div class="al-s">Nevicata principale: ' + dayName(peak.d, pi) + ' ' + dayNum(peak.d) + ' · ' + nfmt(peak.sn) + ' cm</div>' : '') +
     '</div>';
 }
@@ -606,7 +601,7 @@ function render(){
   $('foot').innerHTML = 'Ogni valore è la mediana pesata dei modelli disponibili, con più peso a quelli ad alta risoluzione sulle Alpi (MeteoSvizzera, AROME, ItaliaMeteo). ' +
     'Il pallino indica quanto i modelli sono d\'accordo. Tocca un giorno per vedere le ore e il confronto tra i modelli.<br>' +
     'Modelli usati ora: ' + ms.map(x => esc(x.m.n)).join(', ') + '.<br>' +
-    'Versione app: 41 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
+    'Versione app: 42 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
 }
 
 
