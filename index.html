@@ -363,7 +363,7 @@ function neveDaBulbo(pr, Tw, Tair){
   if (Tw == null) return null;                              // dati insufficienti: lascio la neve del modello
   if (Tair != null && Tair > 3.5) return 0;                // troppo caldo: pioggia comunque (paracadute)
   if (Tw > 1.2) return 0;                                   // sopra ~1,2°C di bulbo umido: pioggia
-  const slr = Tw >= 0 ? 7 : Tw >= -3 ? 10 : Tw >= -8 ? 13 : 17;   // rapporto neve/acqua: più freddo = più soffice
+  const slr = Tw >= 0 ? 5 : Tw >= -3 ? 8 : Tw >= -8 ? 13 : 17;   // rapporto neve/acqua: più freddo = più soffice (vicino a 0°C neve bagnata e pesante)
   return Math.round(pr * slr / 10 * 10) / 10;
 }
 
@@ -601,7 +601,7 @@ function render(){
   $('foot').innerHTML = 'Ogni valore è la mediana pesata dei modelli disponibili, con più peso a quelli ad alta risoluzione sulle Alpi (MeteoSvizzera, AROME, ItaliaMeteo). ' +
     'Il pallino indica quanto i modelli sono d\'accordo. Tocca un giorno per vedere le ore e il confronto tra i modelli.<br>' +
     'Modelli usati ora: ' + ms.map(x => esc(x.m.n)).join(', ') + '.<br>' +
-    'Versione app: 42 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
+    'Versione app: 43 · Dati: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0).';
 }
 
 
