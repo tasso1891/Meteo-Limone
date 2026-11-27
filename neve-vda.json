@@ -1,102 +1,146 @@
 {
- "aggiornato": "2026-11-27T07:25:17Z",
+ "aggiornato": "2026-11-27T15:04:42Z",
  "fonte": "Centro Funzionale Valle d'Aosta - bollettini nivometrici",
  "stazioni": [
+  {
+   "nome": "Ayas - Alpe Aventine",
+   "quota": 2080,
+   "lat": 45.874,
+   "lon": 7.71923,
+   "neve": 28.0
+  },
   {
    "nome": "Bionaz - Place Moulin",
    "quota": 1979,
    "lat": 45.8997,
    "lon": 7.49137,
-   "neve": 51.0
+   "neve": 48.0
+  },
+  {
+   "nome": "Chamois - Lac de Lou",
+   "quota": 2020,
+   "lat": 45.8446,
+   "lon": 7.62275,
+   "neve": 19.0
+  },
+  {
+   "nome": "Champorcher - Rifugio Dondena",
+   "quota": 2181,
+   "lat": 45.6123,
+   "lon": 7.55184,
+   "neve": 8.0
+  },
+  {
+   "nome": "Cogne - Lillaz",
+   "quota": 1613,
+   "lat": 45.5951,
+   "lon": 7.39184,
+   "neve": 48.0
   },
   {
    "nome": "Courmayeur - Dolonne",
    "quota": 1200,
    "lat": 45.7945,
    "lon": 6.96642,
-   "neve": 25.0
+   "neve": 20.0
   },
   {
    "nome": "Courmayeur - Ferrachet",
    "quota": 2290,
    "lat": 45.8668,
    "lon": 7.02754,
-   "neve": 119.0
+   "neve": 118.0
   },
   {
    "nome": "Courmayeur - Mont de la Saxe",
    "quota": 2076,
    "lat": 45.817,
    "lon": 6.98204,
-   "neve": 63.0
+   "neve": 60.0
+  },
+  {
+   "nome": "Fénis - Lavodilec",
+   "quota": 2250,
+   "lat": 45.6448,
+   "lon": 7.48514,
+   "neve": 35.0
   },
   {
    "nome": "La Thuile - La Grande Tête",
    "quota": 2430,
    "lat": 45.6837,
    "lon": 6.91591,
-   "neve": 84.0
+   "neve": 79.0
   },
   {
    "nome": "La Thuile - Villaret",
    "quota": 1488,
    "lat": 45.7095,
    "lon": 6.95609,
-   "neve": 24.0
+   "neve": 23.0
   },
   {
    "nome": "Morgex - Lavancher",
    "quota": 2842,
    "lat": 45.7952,
    "lon": 7.02014,
-   "neve": 178.0
+   "neve": 170.0
   },
   {
    "nome": "Ollomont - By",
    "quota": 2017,
    "lat": 45.8814,
    "lon": 7.30066,
-   "neve": 125.0
+   "neve": 122.0
   },
   {
    "nome": "Valgrisenche - Menthieu",
    "quota": 1859,
    "lat": 45.6137,
    "lon": 7.0525,
-   "neve": 60.0
+   "neve": 66.0
   },
   {
-   "nome": "Valpelline - Chosoz",
-   "quota": 1029,
-   "lat": 45.8269,
-   "lon": 7.33963,
-   "neve": 0.0
+   "nome": "Valsavarenche - Orvieille",
+   "quota": 2170,
+   "lat": 45.5799,
+   "lon": 7.19196,
+   "neve": 78.0
+  },
+  {
+   "nome": "Valsavarenche - Pont",
+   "quota": 1951,
+   "lat": 45.5268,
+   "lon": 7.20093,
+   "neve": 48.0
   },
   {
    "nome": "Valtournenche - Breuil Cervinia",
    "quota": 1998,
    "lat": 45.9314,
    "lon": 7.62623,
-   "neve": 50.0
+   "neve": 47.0
   },
   {
    "nome": "Valtournenche - Grandes Murailles",
    "quota": 2566,
    "lat": 45.9295,
    "lon": 7.60298,
-   "neve": 130.0
+   "neve": 127.0
   },
   {
    "nome": "Valtournenche - Lago Goillet",
    "quota": 2541,
    "lat": 45.9313,
    "lon": 7.66271,
-   "neve": 68.0
+   "neve": 70.0
+  },
+  {
+   "nome": "Valtournenche - Maen",
+   "quota": 1310,
+   "lat": 45.8626,
+   "lon": 7.61112,
+   "neve": 12.0
   }
- ],
- "errori": [
-  "Zona A: <urlopen error [Errno -3] Temporary failure in name resolution>",
-  "Zona B: <urlopen error [Errno -3] Temporary failure in name resolution>",
-  "Zona C: <urlopen error [Errno -3] Temporary failure in name resolution>"
  ]
 }
