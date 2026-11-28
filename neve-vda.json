@@ -1,5 +1,5 @@
 {
- "aggiornato": "2026-11-27T15:04:42Z",
+ "aggiornato": "2026-11-28T07:19:00Z",
  "fonte": "Centro Funzionale Valle d'Aosta - bollettini nivometrici",
  "stazioni": [
   {
@@ -7,14 +7,14 @@
    "quota": 2080,
    "lat": 45.874,
    "lon": 7.71923,
-   "neve": 28.0
+   "neve": 30.0
   },
   {
    "nome": "Bionaz - Place Moulin",
    "quota": 1979,
    "lat": 45.8997,
    "lon": 7.49137,
-   "neve": 48.0
+   "neve": 44.0
   },
   {
    "nome": "Chamois - Lac de Lou",
@@ -35,7 +35,7 @@
    "quota": 1613,
    "lat": 45.5951,
    "lon": 7.39184,
-   "neve": 48.0
+   "neve": 49.0
   },
   {
    "nome": "Courmayeur - Dolonne",
@@ -49,14 +49,14 @@
    "quota": 2290,
    "lat": 45.8668,
    "lon": 7.02754,
-   "neve": 118.0
+   "neve": 115.0
   },
   {
    "nome": "Courmayeur - Mont de la Saxe",
    "quota": 2076,
    "lat": 45.817,
    "lon": 6.98204,
-   "neve": 60.0
+   "neve": 59.0
   },
   {
    "nome": "Fénis - Lavodilec",
@@ -70,35 +70,35 @@
    "quota": 2430,
    "lat": 45.6837,
    "lon": 6.91591,
-   "neve": 79.0
+   "neve": 74.0
   },
   {
    "nome": "La Thuile - Villaret",
    "quota": 1488,
    "lat": 45.7095,
    "lon": 6.95609,
-   "neve": 23.0
+   "neve": 25.0
   },
   {
    "nome": "Morgex - Lavancher",
    "quota": 2842,
    "lat": 45.7952,
    "lon": 7.02014,
-   "neve": 170.0
+   "neve": 167.0
   },
   {
    "nome": "Ollomont - By",
    "quota": 2017,
    "lat": 45.8814,
    "lon": 7.30066,
-   "neve": 122.0
+   "neve": 119.0
   },
   {
    "nome": "Valgrisenche - Menthieu",
    "quota": 1859,
    "lat": 45.6137,
    "lon": 7.0525,
-   "neve": 66.0
+   "neve": 64.0
   },
   {
    "nome": "Valsavarenche - Orvieille",
@@ -112,28 +112,28 @@
    "quota": 1951,
    "lat": 45.5268,
    "lon": 7.20093,
-   "neve": 48.0
+   "neve": 43.0
   },
   {
    "nome": "Valtournenche - Breuil Cervinia",
    "quota": 1998,
    "lat": 45.9314,
    "lon": 7.62623,
-   "neve": 47.0
+   "neve": 48.0
   },
   {
    "nome": "Valtournenche - Grandes Murailles",
    "quota": 2566,
    "lat": 45.9295,
    "lon": 7.60298,
-   "neve": 127.0
+   "neve": 125.0
   },
   {
    "nome": "Valtournenche - Lago Goillet",
    "quota": 2541,
    "lat": 45.9313,
    "lon": 7.66271,
-   "neve": 70.0
+   "neve": 57.0
   },
   {
    "nome": "Valtournenche - Maen",
